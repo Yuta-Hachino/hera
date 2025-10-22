@@ -118,15 +118,24 @@ class PersonaFactory:
 
         personas: List[Persona] = []
         for idx, info in enumerate(children_info):
-            # 出生順位を追加
-            info["birth_order"] = f"第{idx + 1}子"
+            # infoが文字列の場合は辞書に変換
+            if isinstance(info, str):
+                info = {"desired_gender": info}
+
+            # infoが辞書であることを確認
+            if not isinstance(info, dict):
+                info = {}
+
+            # 出生順位を追加（コピーを作成して変更）
+            info_dict = dict(info)
+            info_dict["birth_order"] = f"第{idx + 1}子"
 
             if use_calculator:
                 # 科学的計算を使用
-                persona = self._child_from_calculator(idx, info, calculator)
+                persona = self._child_from_calculator(idx, info_dict, calculator)
             else:
                 # 既存ロジックを使用（後方互換性）
-                persona = self._child_from_info(idx + 1, info)
+                persona = self._child_from_info(idx + 1, info_dict)
 
             personas.append(persona)
 

@@ -160,28 +160,37 @@ Google ADKの正式なフレームワークを使用した高度なエージェ�
 
 ---
 
-## 🚀 開発ロードマップ
+## 🚀 セットアップと実行
 
-### Phase 1: MVP（1週間）
-- [ ] 基本的なユーザー情報入力フォーム
-- [ ] 短い未来シナリオ生成
-- [ ] 家族画像生成
-- [ ] 基本的なUI/UX
+詳細な実行手順は [backend/README.md](backend/README.md) を参照してください。
 
-### Phase 2: 音声対応（2週間）
-- [ ] 音声入力機能
-- [ ] ヘーラーエージェントの音声案内
-- [ ] 音声合成による応答
+### クイックスタート
 
-### Phase 3: ADKエージェント統合（3週間）
-- [ ] Google ADKエージェントの完全統合
-- [ ] 高度な対話機能の実装
-- [ ] 音声処理の最適化
+```bash
+# 1. 仮想環境を作成・有効化
+python3 -m venv .venv
+source .venv/bin/activate  # macOS/Linux
+# .venv\Scripts\activate   # Windows
 
-### Phase 4: 高度なコンテンツ生成（4週間）
-- [ ] 動画コンテンツ生成
-- [ ] 手紙テンプレート生成
-- [ ] 高度なストーリー生成
+# 2. 依存関係をインストール
+pip install -r backend/requirements.txt
+
+# 3. 環境変数を設定（backend/.envファイルを作成）
+cd backend
+cp env.example .env
+# .envファイルを編集してAPIキーを設定
+
+# 4. ADKエージェントを起動（agentsディレクトリを指定）
+adk web agents
+# http://localhost:8000 にアクセス
+```
+
+### 利用可能なエージェント
+
+1. **hera_session_agent** - プロファイル収集エージェント
+2. **family_session_agent** - 家族会話エージェント（ストーリー・手紙生成）
+
+詳しくは [backend/README.md](backend/README.md) をご覧ください。
 
 ---
 

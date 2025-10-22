@@ -79,11 +79,39 @@ class FamilySessionAgent(Agent):
             return
 
         session_id = callback_context.session.id
+        logger.info(f"🆔 Familyエージェントのセッション ID: {session_id}")
+        logger.info(f"🔍 親エージェント: {self.parent_agent.name if self.parent_agent else 'なし'}")
+
         profile = FamilyProfileLoader.load_from_session(session_id)
+
+        # プロファイルが見つからない場合、最新のセッションを探す
+        if not profile or not profile.get("age"):
+            logger.info(f"⚠️ セッション {session_id} にプロファイルが見つかりません。最新のセッションを検索します...")
+            base_dir = FamilyProfileLoader.get_base_dir()
+            if os.path.exists(base_dir):
+                # すべてのセッションディレクトリを取得（最新順）
+                sessions = []
+                for d in os.listdir(base_dir):
+                    path = os.path.join(base_dir, d)
+                    if os.path.isdir(path) and d != "generated_content":
+                        # ディレクトリの最終更新時刻を取得
+                        mtime = os.path.getmtime(path)
+                        sessions.append((mtime, d))
+
+                # 最新のものから順にチェック
+                for _, sess_dir in sorted(sessions, reverse=True):
+                    test_profile = FamilyProfileLoader.load_from_session(sess_dir)
+                    if test_profile and test_profile.get("age"):
+                        logger.info(f"セッション {sess_dir} からプロファイルを読み込みました")
+                        profile = test_profile
+                        session_id = sess_dir
+                        break
+
         self._toolset = FamilyToolSet(profile)
         self._profile_loaded = True
         self._apply_toolset()
         callback_context.state["profile"] = profile
+        callback_context.state["hera_session_id"] = session_id
 
     @property
     def toolset(self) -> FamilyToolSet:
@@ -161,10 +189,11 @@ class FamilySessionAgent(Agent):
             logger.error(f"手紙生成中にエラーが発生しました: {e}", exc_info=True)
             letter = ""  # エラー時は空文字列
 
-        # 4. ファイル保存
-        session_id = callback_context.session.id
+        # 4. ファイル保存（Heraのセッション IDを使用）
+        session_id = callback_context.state.get("hera_session_id") or callback_context.session.id
         if session_id:
             try:
+                logger.info(f"家族会話をセッション {session_id} に保存します")
                 base_dir = FamilyProfileLoader.get_base_dir()
                 session_dir = os.path.join(base_dir, session_id)
                 os.makedirs(session_dir, exist_ok=True)
