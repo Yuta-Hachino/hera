@@ -110,6 +110,33 @@ class ADKHeraAgent:
             **kwargs
         )
 
+        # デバッグ：ツールの確認
+        print(f"🔧 Heraエージェントのツール数: {len(self.agent.tools) if self.agent.tools else 0}")
+        if self.agent.tools:
+            print(f"🔧 ツール名: {[getattr(t, 'name', str(t)) for t in self.agent.tools]}")
+
+        # サブエージェントとしてfamily_agentを追加（遅延インポート対応）
+        try:
+            # agents.familyパッケージから直接インポート
+            import sys
+            agents_dir = os.path.dirname(os.path.dirname(__file__))
+            if agents_dir not in sys.path:
+                sys.path.insert(0, agents_dir)
+
+            from family.entrypoints import create_family_session
+            family_agent = create_family_session()
+            self.agent.sub_agents = [family_agent]
+            print("✅ Familyエージェントをサブエージェントとして追加しました")
+
+            # デバッグ：サブエージェント追加後もツールが残っているか確認
+            print(f"🔧 サブエージェント追加後のHeraツール数: {len(self.agent.tools) if self.agent.tools else 0}")
+        except Exception as e:
+            print(f"⚠️ Familyエージェントのインポートに失敗しました: {e}")
+            import traceback
+            traceback.print_exc()
+            # サブエージェントなしで続行
+            self.agent.sub_agents = []
+
     def _get_agent_instruction(self) -> str:
         """エージェントの指示を取得"""
         return f"""
@@ -172,18 +199,25 @@ class ADKHeraAgent:
 - 子供の性格は親の情報から自動計算されるため、絶対に聞かない
 - 3-4ターンで情報収集を終えることを目指す
 - ユーザーが自発的に話した情報は受け入れるが、こちらから細かく聞き出さない
-- 必要な情報が揃ったら「ありがとうございます。十分な情報が揃いました」と明確に伝える
+- 必要な情報が揃ったら、check_session_completionで完了確認してから、family_session_agentに転送する
 - 常に愛情深く、家族思いの神として振る舞う
+
+【情報収集完了時の動作】
+1. check_session_completionツールを呼び出して完了を確認
+2. 完了が確認されたら、ユーザーに「未来の家族と会話を始めましょう」と伝える
+3. transfer_to_agent関数を使って family_session_agent に転送する
 
 利用方針（厳守）：
 - 必ず最初にextract_user_infoを呼び出すこと
 - ツール実行前に通常のテキスト応答を出力してはならない
 - extract_user_infoのfunction_callを出力した場合は、その直後に必ず最終テキストメッセージを返し、ツールから受け取った文字列をそのまま提示すること
-- check_session_completionは必要時のみ呼び出す
+- check_session_completionは情報が揃ったタイミングで必ず呼び出す
+- 完了後は必ずtransfer_to_agentでfamily_session_agentに転送する
 
 利用可能なツール：
 - extract_user_info: ユーザー情報を抽出・保存（最初に必ず呼ぶ／戻り値=最終応答）
 - check_session_completion: 情報収集完了を判定
+- transfer_to_agent: 他のエージェントに転送（完了後にfamily_session_agentへ）
 
 これらのツールを適切に使用して、ユーザー情報の収集と管理を行ってください。
 """
@@ -195,16 +229,16 @@ class ADKHeraAgent:
         # カスタムツールを定義
         tools = []
 
-        # 情報抽出ツール
+        # 情報抽出ツール（関数名がツール名になる）
         extract_info_tool = FunctionTool(
-            func=self._extract_user_info_tool,
+            func=self.extract_user_info,
             require_confirmation=False
         )
         tools.append(extract_info_tool)
 
-        # セッション完了判定ツール
+        # セッション完了判定ツール（関数名がツール名になる）
         completion_tool = FunctionTool(
-            func=self._check_completion_tool,
+            func=self.check_session_completion,
             require_confirmation=False
         )
         tools.append(completion_tool)
@@ -280,7 +314,8 @@ class ADKHeraAgent:
             model = GenerativeModel('gemini-2.5-pro')
 
             prompt = f"""
-以下のユーザーメッセージから情報を抽出し、JSON形式で返してください：
+以下のユーザーメッセージから情報を抽出し、**必ず正しいJSON形式のみ**を返してください。
+JSONの外に余計なテキストを含めないでください。
 
 ユーザーメッセージ: {user_message}
 
@@ -324,11 +359,17 @@ class ADKHeraAgent:
   }}
 
 【子供関連】
-- children_info: 子供の希望情報（配列）
+- children_info: 子供の希望情報（**必ず配列形式**）
   [{{
-    "desired_gender": "男/女",
-    "age": 希望年齢
+    "desired_gender": "男/女"
   }}]
+
+  **重要**: children_infoは必ず配列（リスト）形式で返してください。
+  例:
+  - 「女の子一人」 → [{{"desired_gender": "女"}}]
+  - 「男の子二人」 → [{{"desired_gender": "男"}}, {{"desired_gender": "男"}}]
+  - 「子供三人」 → [{{}}， {{}}， {{}}]
+
   ※性格は親の情報から自動計算されるため、性格情報は含めない
 
 【性格特性の推定ルール】
@@ -345,10 +386,15 @@ class ADKHeraAgent:
 重要:
 - 抽出できた情報のみをJSON形式で返す
 - 不要な情報（趣味、仕事、ライフスタイルなど）は抽出しない
-- 性格特性は必ず0.0-1.0の数値で推定する
+- 性格特性は必ず0.0-1.0の数値の辞書形式で推定する
+- children_infoは必ず配列（[]）形式で返す
+- user_personality_traits は必ず辞書（{{}}）形式で返す
 
-例：
-{{"age": 32, "location": "東京", "relationship_status": "married", "current_partner": {{"personality_traits": {{"extraversion": 0.7, "agreeableness": 0.8, "conscientiousness": 0.6, "openness": 0.5, "neuroticism": 0.4}}, "temperament": "優しく几帳面"}}, "user_personality_traits": {{"extraversion": 0.5, "conscientiousness": 0.7, "agreeableness": 0.8, "openness": 0.6, "neuroticism": 0.4}}, "children_info": [{{"desired_gender": "女", "age": 5}}]}}
+正しい例：
+{{"age": 33, "location": "東京都港区", "relationship_status": "single", "ideal_partner": {{"personality_traits": {{"agreeableness": 0.8}}, "temperament": "優しい"}}, "user_personality_traits": {{"extraversion": 0.7, "conscientiousness": 0.5, "agreeableness": 0.6, "openness": 0.7, "neuroticism": 0.3}}, "children_info": [{{"desired_gender": "女"}}]}}
+
+間違った例（これはダメ）：
+{{"user_personality_traits": "自由人", "children_info": "女の子一人欲しい"}}  ← 文字列になっているのでNG
 """
 
             response = model.generate_content(prompt)
@@ -547,7 +593,7 @@ class ADKHeraAgent:
             for attempt in range(1, retries + 1):
                 try:
                     async with httpx.AsyncClient(timeout=timeout_sec) as client:
-                        r = await client.get(f"{self.adk_base_url}/apps/agents/users/user/sessions")
+                        r = await client.get(f"{self.adk_base_url}/apps/hera/users/user/sessions")
                         if r.status_code == 200:
                             data = r.json()
                             print(f"🔍 ADKセッション一覧(try {attempt}/{retries}): {data}")
@@ -725,7 +771,7 @@ class ADKHeraAgent:
         return payload_json
 
     # ADKツール用のメソッド
-    async def _extract_user_info_tool(self, user_message: str) -> str:
+    async def extract_user_info(self, user_message: str) -> str:
         """ユーザー情報抽出ツール"""
         print(f"🔍 情報抽出ツールが呼び出されました: {user_message}")
 
@@ -737,7 +783,7 @@ class ADKHeraAgent:
                     print("❌ ADKセッションIDが取得できません（ツール側フォールバック）")
                     return "セッションIDが取得できませんでした"
                 self.current_session = latest_sid
-                print(f"🆔 ツール側でセッションID設定: {self.current_session}")
+                print(f"🆔 Heraエージェントのセッション ID: {self.current_session}")
 
             # セッション開始（ディレクトリ未作成時）
             project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -809,7 +855,7 @@ class ADKHeraAgent:
             print(f"❌ 不足項目抽出エラー: {e}")
             return {}
 
-    async def _check_completion_tool(self, user_message: str) -> str:
+    async def check_session_completion(self, user_message: str) -> str:
         """セッション完了判定ツール"""
         print(f"🔍 完了判定ツールが呼び出されました: {user_message}")
 
@@ -846,7 +892,13 @@ class ADKHeraAgent:
                 print("✅ セッション完了と判定されました")
                 # 完了時のみディスク保存（プロフィール・履歴）
                 await self._save_session_data()
-                return "COMPLETED"
+                # family_agentに遷移するメッセージを返す
+                return """COMPLETED
+
+素晴らしいです！必要な情報が揃いました。
+それでは、あなたの未来の家族と会話を始めましょう。
+
+家族との会話を始めるには、family_session_agentに転送します。"""
             else:
                 print("⏳ セッション継続と判定されました")
                 return "INCOMPLETE"
@@ -854,3 +906,11 @@ class ADKHeraAgent:
         except Exception as e:
             print(f"❌ 完了判定エラー: {e}")
             return f"完了判定中にエラーが発生しました: {str(e)}"
+
+# ADK用のエクスポート関数
+def hera_session_agent(api_key: str | None = None):
+    """Heraセッションエージェントのファクトリ関数
+    
+    ADK Web UIから呼び出される関数
+    """
+    return ADKHeraAgent()

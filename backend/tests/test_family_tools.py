@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # 家族ツールのインポート
-from family.tooling import FamilyToolSet
+from backend.agents.family.tooling import FamilyToolSet
 
 # サンプルプロファイル
 SAMPLE_PROFILE = {

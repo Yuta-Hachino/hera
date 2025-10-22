@@ -9,9 +9,9 @@ import sys
 import os
 
 # プロジェクトルートをパスに追加
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-from family.persona_factory import PersonaFactory
+from backend.agents.family.persona_factory import PersonaFactory
 
 
 def test_backward_compatibility():
