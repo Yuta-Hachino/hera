@@ -168,8 +168,8 @@ Google ADKの正式なフレームワークを使用した高度なエージェ�
 
 ```bash
 # 1. 仮想環境を作成・有効化
-python3 -m venv .venv
-source .venv/bin/activate  # macOS/Linux
+python3 -m venv venv
+source venv/bin/activate  # macOS/Linux
 # .venv\Scripts\activate   # Windows
 
 # 2. 依存関係をインストール
