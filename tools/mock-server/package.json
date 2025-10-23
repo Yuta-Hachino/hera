@@ -1,0 +1,21 @@
+{
+  "name": "ai-family-simulator-mock-server",
+  "version": "1.0.0",
+  "description": "Mock API server for AI Family Simulator",
+  "main": "server.js",
+  "scripts": {
+    "start": "json-server --watch db.json --port 3001 --routes routes.json",
+    "start:custom": "node server.js"
+  },
+  "keywords": [
+    "mock",
+    "api",
+    "json-server"
+  ],
+  "dependencies": {
+    "json-server": "^0.17.4",
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {}
+}
