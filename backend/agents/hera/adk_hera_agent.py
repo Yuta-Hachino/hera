@@ -68,6 +68,10 @@ class HeraPersona(BaseModel):
 class ADKHeraAgent:
     """Google ADKベースのヘーラーエージェント"""
 
+    class SessionState(Enum):
+        COLLECTING = "collecting"
+        COMPLETED = "completed"
+
     def __init__(
         self,
         gemini_api_key: str = None,
@@ -85,20 +89,27 @@ class ADKHeraAgent:
         self.user_profile = UserProfile()
         self.conversation_history = []
         self.last_extracted_fields: Dict[str, Any] = {}
+        self._session_state = self.SessionState.COLLECTING
 
-        # 情報収集の進捗（必須項目のみ）
-        self.required_info = [
+        # 情報収集の進捗管理（必須項目定義）
+        self.base_required_info = [
             "age",
+            "gender",
+            "income_range",
+            "interests",
+            "future_career",
+            "location",
             "relationship_status",
             "user_personality_traits",
             "children_info"
         ]
 
-        # 推奨項目（収集推奨だが必須ではない）
-        self.recommended_info = [
-            "location",
-            "income_range"
-        ]
+        self.relationship_required_info = {
+            "married": ["current_partner", "partner_info"],
+            "partnered": ["current_partner", "partner_info"],
+            "single": ["ideal_partner"],
+            "other": ["ideal_partner"]
+        }
 
         # ADKエージェントの初期化（標準的な方法）
         self.agent = Agent(
@@ -266,6 +277,7 @@ class ADKHeraAgent:
         self.current_session = session_id
         self.user_profile = UserProfile()
         self.conversation_history = []
+        self._session_state = self.SessionState.COLLECTING
 
         # セッション用ディレクトリを事前に作成
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -575,14 +587,11 @@ JSONの外に余計なテキストを含めないでください。
 
     async def _generate_completion_message(self) -> str:
         """情報収集完了時のメッセージを生成"""
-        return f"""
-素晴らしいです。あなたの価値観と理想の家族像についてより深く理解できました。
-
-収集した情報：
-{await self._format_collected_info()}
-
-{self.persona.name}として、あなたの家族の幸せを心から願っています。
-"""
+        return (
+            "素晴らしいです！必要な情報が揃いました。\n"
+            "それでは、あなたの未来の家族と会話を始めましょう。\n"
+            "家族との会話を始めるには、family_session_agentに転送します。"
+        )
 
 
     async def _get_latest_adk_session_id(self, retries: int = 3, timeout_sec: float = 10.0) -> Optional[str]:
@@ -800,8 +809,11 @@ JSONの外に余計なテキストを含めないでください。
             await self._extract_information(user_message)
 
             # エージェントの応答を生成
-            response_text = await self._generate_hera_response(user_message)
-            payload = self._wrap_response(response_text)
+            if self._session_state == self.SessionState.COMPLETED:
+                payload = self._wrap_response("")
+            else:
+                response_text = await self._generate_hera_response(user_message)
+                payload = self._wrap_response(response_text)
 
             # エージェントの応答を履歴に追加
             await self._add_to_history("hera", payload["message"])
@@ -890,15 +902,19 @@ JSONの外に余計なテキストを含めないでください。
 
             if is_complete:
                 print("✅ セッション完了と判定されました")
-                # 完了時のみディスク保存（プロフィール・履歴）
-                await self._save_session_data()
-                # family_agentに遷移するメッセージを返す
-                return """COMPLETED
+                if self._session_state != self.SessionState.COMPLETED:
+                    # 締めのメッセージを生成し履歴に記録
+                    completion_message = (await self._generate_completion_message()).strip()
+                    if completion_message:
+                        await self._add_to_history("hera", completion_message)
+                        await self._save_conversation_history()
 
-素晴らしいです！必要な情報が揃いました。
-それでは、あなたの未来の家族と会話を始めましょう。
+                    # 完了時のみディスク保存（プロフィール・履歴）
+                    await self._save_session_data()
+                    self._session_state = self.SessionState.COMPLETED
 
-家族との会話を始めるには、family_session_agentに転送します。"""
+                # family_agentへの切り替えはtransfer_to_agentに任せ、追加メッセージは返さない
+                return ""
             else:
                 print("⏳ セッション継続と判定されました")
                 return "INCOMPLETE"
@@ -910,7 +926,7 @@ JSONの外に余計なテキストを含めないでください。
 # ADK用のエクスポート関数
 def hera_session_agent(api_key: str | None = None):
     """Heraセッションエージェントのファクトリ関数
-    
+
     ADK Web UIから呼び出される関数
     """
     return ADKHeraAgent()
