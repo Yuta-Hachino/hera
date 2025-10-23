@@ -49,7 +49,8 @@ cp env.example .env
 
 ```.env
 GOOGLE_API_KEY=your_gemini_api_key_here
-FAMILY_SESSIONS_DIR=./tmp/user_sessions
+# セッションデータの保存先（オプション、デフォルト: backend/tmp/user_sessions）
+# SESSIONS_DIR=tmp/user_sessions
 ```
 
 ## 🎯 使い方
