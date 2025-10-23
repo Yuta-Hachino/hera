@@ -118,47 +118,149 @@
 
 ## 参考：収集情報フィールド（例）
 
-### 必須項目（Required Fields）
-これらの情報が揃わないとFamily Agentへの転送ができません：
+### 【A】ユーザーから自然言語で収集する情報（生データ）
 
+#### A-1. 必須項目（Required Fields）
+ユーザーに自然言語で答えてもらう必須情報：
+
+- **年齢** - 数値（例: 「33歳です」）
+- **交際状況** - 既婚/交際中/独身など（例: 「独身です」）
+- **パートナーの性格** - 自由記述（例: 「明るくて優しい人」「几帳面で計画的」）
+  - 既婚/交際中: 実際のパートナーの性格
+  - 独身: 理想のパートナーの性格
+- **パートナーの外見** - 自由記述（例: 「目が大きくて優しい印象、髪は肩まであるセミロング」）
+  - 既婚/交際中: 実際のパートナーの外見的特徴
+  - 独身: 理想のパートナーの外見イメージ
+- **ユーザー自身の性格** - 自由記述（例: 「社交的で新しいことが好き」「几帳面で計画的」）
+- **子供の希望** - 人数と性別（例: 「女の子1人と男の子1人」「3人欲しい」）
+
+#### A-2. 推奨項目（Recommended Fields）
+収集推奨だが、なくてもFamily Agentへの転送は可能：
+
+- **居住地** - 自由記述（例: 「東京都港区」）
+- **収入範囲** - 自由記述（例: 「年収500-700万円」）
+
+#### A-3. オプション項目（Optional Fields）
+実装では定義されているが、現在のヒアリングフローでは基本的に収集しない：
+
+- 性別
+- ライフスタイル
+- 家族構成
+- 趣味・興味
+- 現在の仕事スタイル
+- 将来の仕事・キャリア
+
+---
+
+### 【B】LLMが自動的に抽出・推定する項目
+
+ユーザーの自然言語回答（【A】）から、LLMが構造化データに変換：
+
+#### B-1. 基本情報（直接抽出）
 - **`age`** - 年齢（数値）
 - **`relationship_status`** - 交際状況
   - 値: `"married"` (既婚), `"partnered"` (交際中), `"single"` (独身), `"other"` (その他)
-- **`current_partner`** または **`ideal_partner`** - パートナー情報
-  - `current_partner`: 現在のパートナー情報（既婚/交際中の場合）
-  - `ideal_partner`: 理想のパートナー像（独身の場合）
-  - 共通フィールド:
-    - `personality_traits`: ビッグファイブ性格特性（詳細は下記）
-    - `temperament`: 性格の総合的な説明（文字列）
-    - `hobbies`: 趣味（文字列配列）
-    - `speaking_style`: 話し方の特徴（文字列）
-- **`user_personality_traits`** - ユーザー自身の性格特性（ビッグファイブモデル）
+- **`location`** - 居住地（文字列）
+- **`income_range`** - 収入範囲（文字列）
+- **`partner_face_description`** - パートナーの顔の特徴（文字列）
+
+#### B-2. 性格特性の数値化（推定・変換）
+ユーザーの自然言語での性格描写を **ビッグファイブモデルの数値** に変換：
+
+- **`user_personality_traits`** - ユーザー自身の性格特性（ビッグファイブ）
   - `openness`: 開放性 (0.0-1.0) - 好奇心旺盛さ、新しいこと好き
   - `conscientiousness`: 誠実性 (0.0-1.0) - 几帳面さ、計画的
   - `extraversion`: 外向性 (0.0-1.0) - 社交性、明るさ、活発さ
   - `agreeableness`: 協調性 (0.0-1.0) - 優しさ、思いやり
   - `neuroticism`: 神経症傾向 (0.0-1.0) - 心配性さ、慎重さ
+
+- **パートナーの性格特性**（`current_partner.personality_traits` または `ideal_partner.personality_traits`）
+  - 同様にビッグファイブの数値に変換
+  - `temperament`: 性格の総合的な説明（文字列として保持）
+  - `hobbies`: 趣味（言及があれば抽出）
+  - `speaking_style`: 話し方の特徴（推定）
+
+#### B-3. 子供情報の構造化
 - **`children_info`** - 子どもの希望情報（配列形式）
   - 各要素: `{ "desired_gender": "男" | "女" }`
-  - 例: `[{"desired_gender": "女"}, {"desired_gender": "男"}]` - 女の子1人、男の子1人
+  - 例: 「女の子1人と男の子1人」 → `[{"desired_gender": "女"}, {"desired_gender": "男"}]`
 
-### 推奨項目（Recommended Fields）
-収集推奨だが、なくてもFamily Agentへの転送は可能：
+**抽出方法**: `_extract_information()` メソッドがGemini APIを使用してプロンプトベースで抽出
+**実装**: `backend/agents/hera/adk_hera_agent.py:307-427`
 
-- **`location`** - 居住地（文字列）
-- **`income_range`** - 収入範囲（文字列）
+---
 
-### オプション項目（Optional Fields）
-実装では定義されているが、現在のヒアリングフローでは基本的に収集しない：
+### 【C】内部的に自動生成される項目（計算・合成）
 
-- `gender` - 性別
-- `lifestyle` - ライフスタイル情報（辞書）
-- `family_structure` - 家族構成（辞書）
-- `interests` - 趣味・興味（文字列配列）
-- `work_style` - 現在の仕事スタイル
-- `future_career` - 将来の仕事・キャリア
-- `partner_face_description` - 配偶者の顔の特徴の文章記述
-- `created_at` - 作成日時（自動設定）
+【B】で抽出された構造化データを基に、さらに高度な処理を実行：
+
+#### C-1. 子どもの性格特性（自動計算）
+- **計算方法**: `PersonalityCalculator`が親のビッグファイブ性格特性から科学的に計算
+- **入力**: `user_personality_traits` + `current_partner.personality_traits` (または `ideal_partner.personality_traits`)
+- **出力**: 各子どもの`BigFiveTraits`（遺伝と環境を考慮した確率的モデル）
+- **実装**: `backend/agents/family/personality_calculator.py`
+- **詳細**:
+  - 遺伝的影響: 40-50%（両親の平均値付近に分布）
+  - 環境的影響: ランダム要因を追加
+  - 出生順位による補正（第1子は責任感高め、末子は社交性高めなど）
+
+#### C-2. 子どもの具体的な性格描写（LLM生成）
+- **生成内容**:
+  - `speaking_style`: 話し方の特徴
+  - `traits`: 性格特性リスト（日本語）
+  - `goals`: 目標や願い
+  - `personality_description`: 性格の総合的な説明
+- **生成方法**: `PersonalityCalculator.generate_personality_description()`がGemini APIを使用してビッグファイブから具体的な描写を生成
+- **実装**: `backend/agents/family/personality_calculator.py:57-104`
+
+#### C-3. パートナーの性格特性リスト（変換）
+- **変換内容**: ビッグファイブの数値を日本語の特徴リストに変換
+- **例**: `openness > 0.6` → 「好奇心旺盛」
+- **実装**: `persona_factory.py:242-257` の `_traits_from_big_five()`
+
+#### C-4. システム管理項目
+- **`created_at`** - プロファイル作成日時（自動設定）
+- **会話履歴** - Hera Agentとのやり取り（自動記録）
+- **セッション情報** - セッションID、最終更新時刻など
+
+---
+
+### 【D】データフロー概要
+
+```
+[ユーザー入力（自然言語）]
+  ↓ Hera Agentがヒアリング
+[A: 自然言語で情報を収集]
+  - 年齢、交際状況
+  - パートナーの性格（自由記述）
+  - パートナーの外見（自由記述）
+  - ユーザー自身の性格（自由記述）
+  - 子供の希望（自由記述）
+  ↓
+[B: LLMが構造化データに抽出・変換]
+  ↓ _extract_information() → Gemini API
+  - B-1: 基本情報を抽出
+    - age, relationship_status, location, partner_face_description
+  - B-2: 性格を数値化
+    - 「明るくて優しい」→ user_personality_traits: {extraversion: 0.7, agreeableness: 0.8, ...}
+    - 「几帳面で計画的」→ partner.personality_traits: {conscientiousness: 0.8, ...}
+  - B-3: 子供情報を構造化
+    - 「女の子1人と男の子1人」→ [{desired_gender: "女"}, {desired_gender: "男"}]
+  ↓ 保存 (user_profile.json)
+[Family Agentに転送]
+  ↓ PersonaFactory実行
+[C: さらなる自動生成・計算]
+  - C-1: 子どもの性格を計算
+    - PersonalityCalculator.calculate_child_traits()
+    - 親のビッグファイブ → 子どものビッグファイブ（遺伝モデル）
+  - C-2: 具体的な性格描写を生成
+    - LLMで speaking_style, traits, goals等を生成
+  - C-3: 日本語特性リストに変換
+  ↓
+[家族ペルソナ完成]
+  - Partner Persona (B-1, B-2から構築)
+  - Children Personas (C-1, C-2から構築)
+```
 
 ---
 
