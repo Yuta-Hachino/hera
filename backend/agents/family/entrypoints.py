@@ -14,6 +14,7 @@ from google.genai import types
 from .letter_generator import LetterGenerator
 from .story_generator import StoryGenerator
 from .tooling import FamilyToolSet
+from .persona_generator import PersonaGenerator
 from .config import get_sessions_dir
 
 # ロガー設定
@@ -62,16 +63,16 @@ class FamilySessionAgent(Agent):
             model="gemini-2.5-pro",
             **kwargs,
         )
-        self._toolset = FamilyToolSet(profile)
+        self._profile = profile
+        self._toolset = None
+        self._personas = []
         self._profile_loaded = bool(profile)
         self.before_agent_callback = self._ensure_profile
         self.after_agent_callback = self._post_process
-        if self._profile_loaded:
-            self._apply_toolset()
 
     async def _ensure_profile(self, callback_context: CallbackContext):
-        if self._toolset and self._profile_loaded:
-            self._apply_toolset()
+        # 既にツールセットが初期化されている場合はスキップ
+        if self._toolset is not None:
             return
 
         session_id = callback_context.session.id
@@ -103,7 +104,19 @@ class FamilySessionAgent(Agent):
                         session_id = sess_dir
                         break
 
-        self._toolset = FamilyToolSet(profile)
+        # LLMでペルソナを生成
+        logger.info("PersonaGeneratorを使用してペルソナを生成します...")
+        try:
+            persona_generator = PersonaGenerator()
+            generated_data = await persona_generator.generate_personas(profile)
+            self._personas = persona_generator.build_persona_objects(generated_data)
+            logger.info(f"ペルソナ生成完了: {len(self._personas)}名")
+        except Exception as e:
+            logger.error(f"ペルソナ生成に失敗しました: {e}", exc_info=True)
+            # エラー時は空のペルソナリストでツールセットを初期化
+            self._personas = []
+
+        self._toolset = FamilyToolSet(self._personas)
         self._profile_loaded = True
         self._apply_toolset()
         callback_context.state["profile"] = profile
@@ -114,6 +127,9 @@ class FamilySessionAgent(Agent):
         return self._toolset
 
     def _apply_toolset(self) -> None:
+        if self._toolset is None:
+            logger.warning("ツールセットが初期化されていません")
+            return
         self.tools = self._toolset.build_tools()
         self.instruction = self._build_instruction(self._toolset.tool_names())
 

@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 import google.generativeai as genai
 from google.generativeai import GenerativeModel
 
-from .persona_factory import Persona
+from .models import Persona
 
 
 class StoryGenerator:
