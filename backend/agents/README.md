@@ -19,7 +19,7 @@ python3 -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate (.\.venv\Scripts\Activate.ps1)
 
 # 依存関係のインストール 一度だけ
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 ```
 
 ### 2. 環境変数の設定
