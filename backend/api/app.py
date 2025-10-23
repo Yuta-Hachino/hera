@@ -1,113 +1,142 @@
-import os # APIキーを読み込むためにosモジュールを追加
-import google.generativeai as genai # Gemini AIライブラリをインポート
-from dotenv import load_dotenv # .envファイルを読み込むライブラリをインポート
-from flask import Flask, jsonify, request
+import os
+import uuid
+import json
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from pydantic import BaseModel
+from dotenv import load_dotenv
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from config import get_sessions_dir
+from agents.hera.adk_hera_agent import ADKHeraAgent
+import asyncio
 
-# --- 1. APIキーとAIモデルの準備 ---
+load_dotenv()
 
-# .envファイルから環境変数を読み込む
-load_dotenv() 
-
-# .envに保存したAPIキーを読み込む
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-
-# APIキーを使ってGemini AIを設定
-genai.configure(api_key=GOOGLE_API_KEY)
-
-# 使用するAIモデル（Gemini Pro）を指定
-model = genai.GenerativeModel('gemini-2.0-flash')
-
-# --- 2. Flaskアプリ（司令塔）の準備 ---
+# Flaskアプリ
 app = Flask(__name__)
+CORS(app)
 
-# --- 3. 「窓口（API）」の作成 ---
+# セッションディレクトリ
+SESSIONS_DIR = get_sessions_dir()
+os.makedirs(SESSIONS_DIR, exist_ok=True)
 
-@app.route("/v1/health", methods=["GET"])
-def health_check():
-    return jsonify({"status": "ok"})
+hera_agent_map = {}  # セッションIDごとにAIエージェントインスタンスをメモリ管理
 
-@app.route("/v1/simulate", methods=["POST"])
-def simulate_family():
+class MessageRequest(BaseModel):
+    message: str
+
+# Utility関数
+
+def session_path(session_id: str) -> str:
+    return os.path.join(SESSIONS_DIR, session_id)
+
+def load_file(path: str, default=None):
+    if os.path.exists(path):
+        with open(path, encoding='utf-8') as f:
+            return json.load(f)
+    return default
+
+def save_file(path: str, data):
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+# 1. セッション新規作成
+@app.route('/api/sessions', methods=['POST'])
+def create_session():
+    session_id = str(uuid.uuid4())
+    path = session_path(session_id)
+    os.makedirs(path, exist_ok=True)
+    os.makedirs(os.path.join(path, 'photos'), exist_ok=True)
+    # Heraエージェント準備
+    hera_agent_map[session_id] = ADKHeraAgent(gemini_api_key=os.environ.get('GEMINI_API_KEY'))
+    # プロファイル初期化
+    save_file(os.path.join(path, 'user_profile.json'), {})
+    save_file(os.path.join(path, 'conversation_history.json'), [])
+    return jsonify({
+        'session_id': session_id,
+        'created_at': uuid.uuid1().ctime() if hasattr(uuid.uuid1(), 'ctime') else '',
+        'status': 'created'
+    })
+
+# 2. メッセージ送信 & ヒアリング進行
+@app.route('/api/sessions/<session_id>/messages', methods=['POST'])
+def send_message(session_id):
+    req = request.get_json()
+    if not req or 'message' not in req:
+        return jsonify({'error': 'messageフィールド必須'}), 400
+    user_message = req['message']
+
+    # エージェント確保
+    if session_id not in hera_agent_map:
+        hera_agent_map[session_id] = ADKHeraAgent(gemini_api_key=os.environ.get('GEMINI_API_KEY'))
+    agent = hera_agent_map[session_id]
+    # セッション同期
+    asyncio.run(agent.start_session(session_id))
+
+    # ADKで応答生成
+    response_json = asyncio.run(agent.extract_user_info(user_message))
+    response = json.loads(response_json) if isinstance(response_json, str) else response_json
+
+    # 履歴・プロファイルをディスクにも保存
+    session_dir = session_path(session_id)
+    save_file(os.path.join(session_dir, 'user_profile.json'), agent.user_profile.dict())
+    save_file(os.path.join(session_dir, 'conversation_history.json'), agent.conversation_history)
+
+    # 必要に応じて進捗も返す
+    progress = agent._check_information_progress() if hasattr(agent, '_check_information_progress') else {}
+    return jsonify({
+        'reply': response.get('message', ''),
+        'conversation_history': agent.conversation_history,
+        'user_profile': agent.user_profile.dict(),
+        'information_progress': progress
+    })
+
+# 3. 進捗・履歴・プロフィール取得
+@app.route('/api/sessions/<session_id>/status', methods=['GET'])
+def get_status(session_id):
+    session_dir = session_path(session_id)
+    profile = load_file(os.path.join(session_dir, 'user_profile.json'), {})
+    history = load_file(os.path.join(session_dir, 'conversation_history.json'), [])
+    # エージェント優先で進捗も返す
+    agent = hera_agent_map.get(session_id)
+    progress = agent._check_information_progress() if agent and hasattr(agent, '_check_information_progress') else {}
+    return jsonify({
+        'user_profile': profile,
+        'conversation_history': history,
+        'information_progress': progress
+    })
+
+# 4. セッション完了（必須情報充足/保存・family_agent転送準備）
+@app.route('/api/sessions/<session_id>/complete', methods=['POST'])
+def complete_session(session_id):
+    agent = hera_agent_map.get(session_id)
+    if not agent:
+        return jsonify({'error': 'セッションが見つかりません'}), 404
+    # 完了判定＆データ保存
+    message = ''
     try:
-        # --- 4. フロントエンドからデータを受け取る ---
-        data = request.get_json()
-        
-        age = data.get("age")
-        income_range = data.get("income") # "middle" など
-        lifestyle = data.get("lifestyle", {})
-        area = lifestyle.get("area") # "urban" など
-        hobby = lifestyle.get("hobby", "特になし") # 趣味
-
-        print(f"--- AIへの入力データ: 年齢{age}, 収入{income_range}, 地域{area}, 趣味{hobby} ---")
-
-        # --- 5. AIに「指示書（プロンプト）」を送る ---
-
-        # AIに「未来のストーリー」を作ってもらうための指示書
-        story_prompt = f"""
-        あなたは、ポジティブな未来を描くシナリオライターです。
-        文字数は90語以上、110語未満です。pythonを使って文字数を数えて、
-        指定の文字数範囲に収まるまで生成を繰り返してください
-        以下のユーザー情報に基づき、5年後の幸せな「家族の日常ストーリー」を生成してください。
-        ユーザーが「子どもを持つ未来も悪くないな」とポジティブになれるような、温かい内容にしてください。
-        
-        # ユーザー情報
-        - 年齢: {age}歳
-        - 収入レンジ: {income_range}
-        - 居住地: {area}
-        - 趣味: {hobby}
-
-        # 生成するストーリー（300文字程度）:
-        """
-        
-        # AIに「未来の手紙」を作ってもらうための指示書
-        letter_prompt = f"""
-        あなたは、未来（5年後）に生まれた子ども（5歳）の視点になりきってください。
-        以下のユーザー情報を持つ未来の「パパ」または「ママ」に向けて、愛情のこもった短い「未来の手紙」を生成してください。
-        子どもらしい、少し拙い（つたない）言葉遣いで書いてください。
-
-        # ユーザー情報
-        - 年齢: {age}歳
-        - 居住地: {area}
-        - 趣味: {hobby}
-
-        # 生成する手紙（100文字程度）:
-        """
-
-        # Gemini AIを呼び出して、ストーリーと手紙を「同時」に生成させる
-        # （model.start_chat() を使って会話形式で依頼します）
-        chat = model.start_chat()
-        
-        response_story = chat.send_message(story_prompt)
-        story_text = response_story.text
-
-        response_letter = chat.send_message(letter_prompt)
-        letter_text = response_letter.text
-
-        print("--- AIからの応答（ストーリー） ---")
-        print(story_text)
-        print("--- AIからの応答（手紙） ---")
-        print(letter_text)
-
-        # --- 6. AIの答えをフロントエンドに返す ---
-        ai_response = {
-            "id": f"sim-{age}-{area}",
-            "story": story_text,
-            "imageUrl": "https://via.placeholder.com/600x400.png?text=Family+Illustration", # (画像生成は次のステップ)
-            "letter": letter_text,
-            "imagePrompt": "A dummy image prompt.", # (これもAIに作らせるとGood)
-            "createdAt": "2025-10-21T10:45:00Z" # (本当は現在時刻を入れる)
-        }
-        
-        return jsonify(ai_response)
-
+        # 空のメッセージで完了判定
+        result = asyncio.run(agent.check_session_completion(""))
+        # プロファイル等最新保存
+        session_dir = session_path(session_id)
+        save_file(os.path.join(session_dir, 'user_profile.json'), agent.user_profile.dict())
+        save_file(os.path.join(session_dir, 'conversation_history.json'), agent.conversation_history)
+        message = result if result else "収集が完了しました。ありがとうございました。"
     except Exception as e:
-        # もしAI呼び出しなどでエラーが起きたら、エラー内容をターミナルに出力
-        print(f"!!! エラー発生: {e}")
-        # フロントエンドには「サーバーエラー」を返す
-        return jsonify({"error": {"message": str(e)}}), 500
+        return jsonify({'error': str(e)}), 500
+    is_complete = agent.is_information_complete() if hasattr(agent, 'is_information_complete') else False
+    return jsonify({
+        'message': message,
+        'user_profile': agent.user_profile.dict() if hasattr(agent, 'user_profile') else {},
+        'information_complete': is_complete
+    })
 
+# ヘルスチェック
+@app.route('/api/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'ok'})
 
-# このファイルが「実行」されたときに、
-# サーバーを起動するためのおまじないです。
 if __name__ == "__main__":
-    app.run(debug=True, port=8000)
+    app.run(debug=True, port=8080)
