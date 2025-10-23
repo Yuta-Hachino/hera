@@ -208,8 +208,9 @@ GEMINI_API_KEY=your_api_key
 # 使用するモデル（オプション、デフォルト: gemini-2.5-pro）
 FAMILY_GEMINI_MODEL=gemini-2.5-pro
 
-# セッションディレクトリ（オプション）
-FAMILY_SESSIONS_DIR=/path/to/sessions
+# セッションディレクトリ（オプション、デフォルト: backend/tmp/user_sessions）
+# 相対パスはbackend/基準、絶対パスも使用可能
+# SESSIONS_DIR=tmp/user_sessions
 ```
 
 ## エラーハンドリング

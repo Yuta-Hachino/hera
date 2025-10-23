@@ -26,7 +26,7 @@ class FamilyProfileLoader:
     @classmethod
     def get_base_dir(cls) -> str:
         if cls._base_dir is None:
-            cls._base_dir = os.environ.get("FAMILY_SESSIONS_DIR") or get_sessions_dir()
+            cls._base_dir = get_sessions_dir()
         return cls._base_dir
 
     @classmethod
