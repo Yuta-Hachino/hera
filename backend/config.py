@@ -25,8 +25,8 @@ def get_sessions_dir() -> str:
         # 環境変数で絶対パス指定
         SESSIONS_DIR=/var/app/sessions  # -> /var/app/sessions
     """
-    # backend/ ディレクトリを取得（agents/ の親）
-    backend_root = os.path.dirname(os.path.dirname(__file__))
+    # backend/ ディレクトリを取得（このファイルがある場所）
+    backend_root = os.path.dirname(__file__)
 
     # 環境変数で上書き可能
     if env_dir := os.environ.get("SESSIONS_DIR"):

@@ -18,7 +18,7 @@ from google.adk.agents.llm_agent import Agent
 from pydantic import BaseModel, Field
 
 # Config
-from ..config import get_sessions_dir
+from .config import get_sessions_dir
 
 
 class UserProfile(BaseModel):
