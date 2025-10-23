@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 from google.adk.agents.llm_agent import Agent
 
-from .persona_factory import Persona
+from .models import Persona
 
 
 class FamilyAgent(Agent):

@@ -9,8 +9,7 @@ import google.generativeai as genai
 from google.generativeai import GenerativeModel
 from google.adk.tools import FunctionTool
 
-from .persona_factory import PersonaFactory
-from .persona_factory import Persona
+from .models import Persona
 
 
 class FamilyTool:
@@ -133,16 +132,28 @@ class FamilyTool:
 class FamilyToolSet:
     """家族会話ツール群"""
 
-    def __init__(self, profile: Dict[str, Any]) -> None:
-        self.factory = PersonaFactory(profile or {})
+    def __init__(self, personas: List[Persona]) -> None:
+        """
+        Args:
+            personas: PersonaGeneratorで生成された家族メンバーのペルソナリスト
+                     [パートナー, 子供1, 子供2, ...]の順
+        """
+        self.personas = personas
         self.tools = self._build_tools()
 
     def _build_tools(self) -> List[FamilyTool]:
         tools: List[FamilyTool] = []
-        partner = self.factory.build_partner()
+        if not self.personas:
+            return tools
+
+        # 最初のペルソナをパートナーとして扱う
+        partner = self.personas[0]
         tools.append(FamilyTool(partner, index=0, kind="partner"))
-        for idx, persona in enumerate(self.factory.build_children(), start=1):
-            tools.append(FamilyTool(persona, index=idx, kind="child"))
+
+        # 残りを子供として扱う
+        for idx, child in enumerate(self.personas[1:], start=1):
+            tools.append(FamilyTool(child, index=idx, kind="child"))
+
         return tools
 
     def build_tools(self) -> List[FunctionTool]:
