@@ -17,6 +17,9 @@ from google.adk.agents.llm_agent import Agent
 # Pydantic for data validation
 from pydantic import BaseModel, Field
 
+# Config
+from ..config import get_sessions_dir
+
 
 class UserProfile(BaseModel):
     """ユーザープロファイル（Pydanticモデル）"""
@@ -280,8 +283,7 @@ class ADKHeraAgent:
         self._session_state = self.SessionState.COLLECTING
 
         # セッション用ディレクトリを事前に作成
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        session_dir = os.path.join(project_root, "tmp", "user_sessions", session_id)
+        session_dir = os.path.join(get_sessions_dir(), session_id)
         photos_dir = os.path.join(session_dir, "photos")
 
         # ディレクトリが存在しない場合のみ作成
@@ -643,9 +645,8 @@ JSONの外に余計なテキストを含めないでください。
 
         print(f"💾 セッションデータを保存中... セッションID: {self.current_session}")
 
-        # プロジェクトルート内のtmpディレクトリを使用（事前に作成済みを想定）
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        session_dir = os.path.join(project_root, "tmp", "user_sessions", self.current_session)
+        # セッションディレクトリを取得（事前に作成済みを想定）
+        session_dir = os.path.join(get_sessions_dir(), self.current_session)
 
         # ディレクトリの存在確認のみ（start_sessionで作成済み）
         if not os.path.exists(session_dir):
@@ -675,8 +676,7 @@ JSONの外に余計なテキストを含めないでください。
             print("⚠️ セッションID未設定のため履歴保存をスキップ")
             return
 
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        session_dir = os.path.join(project_root, "tmp", "user_sessions", self.current_session)
+        session_dir = os.path.join(get_sessions_dir(), self.current_session)
         if not os.path.exists(session_dir):
             print(f"⚠️ セッションディレクトリが存在しません: {session_dir}")
             return
@@ -703,8 +703,7 @@ JSONの外に余計なテキストを含めないでください。
         await self._save_session_data()
 
         # セッション情報を返す
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        session_dir = os.path.join(project_root, "tmp", "user_sessions", self.current_session)
+        session_dir = os.path.join(get_sessions_dir(), self.current_session)
         session_info = {
             "session_id": self.current_session,
             "user_profile": self.user_profile.dict(),
@@ -756,8 +755,7 @@ JSONの外に余計なテキストを含めないでください。
         if self.current_session != resolved_session_id:
             self.current_session = resolved_session_id
             # ディレクトリ未作成時のみ開始処理
-            project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-            session_dir = os.path.join(project_root, "tmp", "user_sessions", self.current_session)
+            session_dir = os.path.join(get_sessions_dir(), self.current_session)
             if not os.path.exists(session_dir):
                 await self.start_session(self.current_session)
 
@@ -795,8 +793,7 @@ JSONの外に余計なテキストを含めないでください。
                 print(f"🆔 Heraエージェントのセッション ID: {self.current_session}")
 
             # セッション開始（ディレクトリ未作成時）
-            project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-            session_dir = os.path.join(project_root, "tmp", "user_sessions", self.current_session)
+            session_dir = os.path.join(get_sessions_dir(), self.current_session)
             if not os.path.exists(session_dir):
                 await self.start_session(self.current_session)
 
@@ -892,8 +889,7 @@ JSONの外に余計なテキストを含めないでください。
                 self.current_session = latest_sid
                 print(f"🆔 完了判定側でセッションID設定: {self.current_session}")
                 # ディレクトリ未作成時のみ開始
-                project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-                session_dir = os.path.join(project_root, "tmp", "user_sessions", self.current_session)
+                session_dir = os.path.join(get_sessions_dir(), self.current_session)
                 if not os.path.exists(session_dir):
                     await self.start_session(self.current_session)
 
