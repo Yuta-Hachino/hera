@@ -14,7 +14,7 @@ from google.genai import types
 from .letter_generator import LetterGenerator
 from .story_generator import StoryGenerator
 from .tooling import FamilyToolSet
-from ..config import get_sessions_dir
+from .config import get_sessions_dir
 
 # ロガー設定
 logger = logging.getLogger(__name__)
