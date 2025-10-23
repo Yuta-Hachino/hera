@@ -117,18 +117,48 @@
 ---
 
 ## 参考：収集情報フィールド（例）
-- `age`（年齢）
-- `gender`（性別）
-- `income_range`（収入範囲）
-- `lifestyle`（ライフスタイル）
-- `family_structure`（家族構成）
-- `interests`（趣味・興味）
-- `work_style`（職業）
-- `future_career`（将来のキャリア観）
-- `location`（居住地）
-- `partner_info`（パートナー情報）
-- `children_info`（子ども情報）
-- ...（追加可）
+
+### 必須項目（Required Fields）
+これらの情報が揃わないとFamily Agentへの転送ができません：
+
+- **`age`** - 年齢（数値）
+- **`relationship_status`** - 交際状況
+  - 値: `"married"` (既婚), `"partnered"` (交際中), `"single"` (独身), `"other"` (その他)
+- **`current_partner`** または **`ideal_partner`** - パートナー情報
+  - `current_partner`: 現在のパートナー情報（既婚/交際中の場合）
+  - `ideal_partner`: 理想のパートナー像（独身の場合）
+  - 共通フィールド:
+    - `personality_traits`: ビッグファイブ性格特性（詳細は下記）
+    - `temperament`: 性格の総合的な説明（文字列）
+    - `hobbies`: 趣味（文字列配列）
+    - `speaking_style`: 話し方の特徴（文字列）
+- **`user_personality_traits`** - ユーザー自身の性格特性（ビッグファイブモデル）
+  - `openness`: 開放性 (0.0-1.0) - 好奇心旺盛さ、新しいこと好き
+  - `conscientiousness`: 誠実性 (0.0-1.0) - 几帳面さ、計画的
+  - `extraversion`: 外向性 (0.0-1.0) - 社交性、明るさ、活発さ
+  - `agreeableness`: 協調性 (0.0-1.0) - 優しさ、思いやり
+  - `neuroticism`: 神経症傾向 (0.0-1.0) - 心配性さ、慎重さ
+- **`children_info`** - 子どもの希望情報（配列形式）
+  - 各要素: `{ "desired_gender": "男" | "女" }`
+  - 例: `[{"desired_gender": "女"}, {"desired_gender": "男"}]` - 女の子1人、男の子1人
+
+### 推奨項目（Recommended Fields）
+収集推奨だが、なくてもFamily Agentへの転送は可能：
+
+- **`location`** - 居住地（文字列）
+- **`income_range`** - 収入範囲（文字列）
+
+### オプション項目（Optional Fields）
+実装では定義されているが、現在のヒアリングフローでは基本的に収集しない：
+
+- `gender` - 性別
+- `lifestyle` - ライフスタイル情報（辞書）
+- `family_structure` - 家族構成（辞書）
+- `interests` - 趣味・興味（文字列配列）
+- `work_style` - 現在の仕事スタイル
+- `future_career` - 将来の仕事・キャリア
+- `partner_face_description` - 配偶者の顔の特徴の文章記述
+- `created_at` - 作成日時（自動設定）
 
 ---
 
