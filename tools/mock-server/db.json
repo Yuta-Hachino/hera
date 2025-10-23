@@ -1,0 +1,94 @@
+{
+  "users": [
+    {
+      "id": "user_001",
+      "age": 28,
+      "income": "medium",
+      "lifestyle": "urban",
+      "personality": {
+        "openness": 0.7,
+        "conscientiousness": 0.6,
+        "extraversion": 0.5,
+        "agreeableness": 0.8,
+        "neuroticism": 0.3
+      },
+      "created_at": "2024-10-23T10:00:00Z"
+    },
+    {
+      "id": "user_002",
+      "age": 32,
+      "income": "high",
+      "lifestyle": "suburban",
+      "personality": {
+        "openness": 0.6,
+        "conscientiousness": 0.8,
+        "extraversion": 0.7,
+        "agreeableness": 0.7,
+        "neuroticism": 0.4
+      },
+      "created_at": "2024-10-23T11:00:00Z"
+    }
+  ],
+  "sessions": [
+    {
+      "id": "session_001",
+      "user_id": "user_001",
+      "status": "completed",
+      "started_at": "2024-10-23T10:05:00Z",
+      "completed_at": "2024-10-23T10:25:00Z"
+    },
+    {
+      "id": "session_002",
+      "user_id": "user_002",
+      "status": "in_progress",
+      "started_at": "2024-10-23T11:05:00Z",
+      "completed_at": null
+    }
+  ],
+  "stories": [
+    {
+      "id": "story_001",
+      "session_id": "session_001",
+      "user_id": "user_001",
+      "title": "家族で公園へ",
+      "content": "晴れた日曜日の朝、5歳の娘と3歳の息子を連れて近所の公園に出かけました。子どもたちは元気いっぱいに遊具で遊び、お昼には手作りのお弁当をみんなで食べました。",
+      "scene": "park",
+      "family_members": ["partner", "daughter_5", "son_3"],
+      "created_at": "2024-10-23T10:20:00Z"
+    }
+  ],
+  "letters": [
+    {
+      "id": "letter_001",
+      "session_id": "session_001",
+      "user_id": "user_001",
+      "from": "daughter_5",
+      "subject": "パパへ",
+      "content": "パパ、いつもあそんでくれてありがとう！だいすきだよ！",
+      "age": 5,
+      "illustration_url": "/mock/images/child-drawing-001.png",
+      "created_at": "2024-10-23T10:22:00Z"
+    }
+  ],
+  "images": [
+    {
+      "id": "image_001",
+      "session_id": "session_001",
+      "user_id": "user_001",
+      "type": "family_portrait",
+      "url": "/mock/images/family-001.png",
+      "prompt": "A happy family of four at a park on a sunny day",
+      "created_at": "2024-10-23T10:21:00Z"
+    }
+  ],
+  "health": {
+    "status": "healthy",
+    "version": "1.0.0",
+    "timestamp": "2024-10-23T12:00:00Z",
+    "services": {
+      "database": "ok",
+      "redis": "ok",
+      "ai_service": "ok"
+    }
+  }
+}
