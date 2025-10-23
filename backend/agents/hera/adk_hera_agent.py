@@ -154,6 +154,26 @@ class ADKHeraAgent:
             # サブエージェントなしで続行
             self.agent.sub_agents = []
 
+    @property
+    def required_info(self) -> List[str]:
+        """relationship_statusに応じた必須情報リストを返す
+
+        Returns:
+            List[str]: 必須情報のキーリスト
+        """
+        # 基本必須項目
+        required = self.base_required_info.copy()
+
+        # relationship_statusに応じた追加必須項目
+        relationship_status = self.user_profile.relationship_status
+        if relationship_status in self.relationship_required_info:
+            # 該当するいずれかのフィールドがあれば良い（ORロジック）
+            additional_fields = self.relationship_required_info[relationship_status]
+            # 現時点では全て含める（実際のチェックは_check_information_progressで行う）
+            required.extend(additional_fields)
+
+        return required
+
     def _get_agent_instruction(self) -> str:
         """エージェントの指示を取得"""
         return f"""
@@ -476,8 +496,159 @@ JSONの外に余計なテキストを含めないでください。
             return True
         return False
 
+    async def _unified_completion_check(self, user_message: str, missing_fields: List[str]) -> Dict[str, Any]:
+        """不足項目抽出・完了判定・完了メッセージを1回のLLM呼び出しで実行
+
+        Args:
+            user_message: ユーザーの最新メッセージ
+            missing_fields: 現時点で不足している必須フィールドのリスト
+
+        Returns:
+            Dict containing:
+                - missing_info: 抽出された不足項目の辞書
+                - is_complete: 情報収集が完了したかどうか
+                - completion_message: 完了時の締めのメッセージ（完了時のみ）
+        """
+        try:
+            print(f"🚀 統合完了チェックを実行中...")
+            print(f"📝 ユーザーメッセージ: {user_message}")
+            print(f"📋 不足フィールド: {missing_fields}")
+            print(f"👤 現在のプロファイル:\n{await self._format_collected_info()}")
+
+            from google.generativeai import GenerativeModel
+            model = GenerativeModel('gemini-2.5-pro')
+
+            # 必須項目の説明を生成
+            required_fields_desc = """
+【必須項目】:
+- age: ユーザーの年齢
+- relationship_status: 交際状況（married/partnered/single/other）
+- user_personality_traits: ユーザー自身の性格特性（ビッグファイブ: openness, conscientiousness, extraversion, agreeableness, neuroticism）
+- partner_face_description: パートナーの外見・顔の特徴（画像生成に使用）
+- children_info: 子供の希望（人数・性別）
+- ideal_partner (独身の場合): 理想のパートナー情報
+- current_partner (既婚/交際中の場合): 現在のパートナー情報
+"""
+
+            prompt = f"""
+あなたは家族の未来を描くための情報収集アシスタントです。
+ユーザーから必要な情報を効率的に収集し、完了判定を行います。
+
+## 現在のユーザープロファイル
+{await self._format_collected_info()}
+
+## ユーザーの最新メッセージ
+{user_message}
+
+## 必須項目
+{required_fields_desc}
+
+## 現時点で不足している項目
+{missing_fields}
+
+## あなたのタスク
+以下の3つを同時に実行してください：
+
+1. **不足項目の抽出**: ユーザーメッセージから不足している項目を抽出
+2. **完了判定**: 全ての必須項目が揃ったか、またはユーザーが完了を示唆しているか判定
+3. **完了メッセージ**: 完了の場合のみ、温かく親しみやすい締めのメッセージを生成
+
+## 判定基準
+- 必須項目が全て揃っている → 完了
+- ユーザーが「これで十分」「もういい」などと言っている → 完了
+- それ以外 → 未完了
+
+## 出力形式
+以下のJSON形式のみで回答してください。JSON以外のテキストは含めないでください。
+
+```json
+{{
+  "missing_info": {{
+    "field_name": "抽出された値",
+    ...
+  }},
+  "is_complete": true または false,
+  "completion_message": "完了時のみ、温かい締めのメッセージ（未完了ならnull）"
+}}
+```
+
+## 例
+入力: "優しい性格で、丸顔の人がいいです"
+出力:
+```json
+{{
+  "missing_info": {{
+    "ideal_partner": {{
+      "temperament": "優しい"
+    }},
+    "partner_face_description": "丸顔"
+  }},
+  "is_complete": false,
+  "completion_message": null
+}}
+```
+"""
+
+            # リトライ機能付きでLLM呼び出し
+            max_retries = 3
+            retry_delay = 2  # 秒
+            response_text = None
+
+            for attempt in range(max_retries):
+                try:
+                    response = model.generate_content(prompt)
+                    response_text = response.text if hasattr(response, 'text') else str(response)
+                    print(f"🤖 統合チェック応答: {response_text[:200]}...")
+                    break  # 成功したらループを抜ける
+                except Exception as llm_error:
+                    if attempt < max_retries - 1:
+                        print(f"⚠️ LLM呼び出し失敗（試行{attempt + 1}/{max_retries}）: {llm_error}")
+                        print(f"⏳ {retry_delay}秒後にリトライします...")
+                        import asyncio
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2  # 指数バックオフ
+                    else:
+                        print(f"❌ LLM呼び出しが{max_retries}回失敗しました: {llm_error}")
+                        raise
+
+            if not response_text:
+                raise ValueError("LLM応答が取得できませんでした")
+
+            # JSONを抽出
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if not json_match:
+                print("⚠️ JSON形式が見つかりません")
+                return {
+                    "missing_info": {},
+                    "is_complete": False,
+                    "completion_message": None
+                }
+
+            result = json.loads(json_match.group(0))
+
+            print(f"✅ 統合チェック結果:")
+            print(f"  - 抽出情報: {result.get('missing_info', {})}")
+            print(f"  - 完了判定: {result.get('is_complete', False)}")
+            if result.get('completion_message'):
+                print(f"  - 完了メッセージ: {result['completion_message'][:50]}...")
+
+            return result
+
+        except Exception as e:
+            print(f"❌ 統合完了チェックエラー: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "missing_info": {},
+                "is_complete": False,
+                "completion_message": None
+            }
+
     async def _check_completion_with_llm(self, user_message: str) -> bool:
-        """LLMを使用して情報収集完了を判定"""
+        """LLMを使用して情報収集完了を判定
+
+        **非推奨**: _unified_completion_check() を使用してください
+        """
         try:
             print(f"🔍 LLM完了判定を実行中...")
             print(f"📝 ユーザーメッセージ: {user_message}")
@@ -604,7 +775,10 @@ JSONの外に余計なテキストを含めないでください。
             return "もう少し詳しく教えていただけますか？"
 
     async def _generate_completion_message(self) -> str:
-        """情報収集完了時のメッセージを生成"""
+        """情報収集完了時のメッセージを生成
+
+        **非推奨**: _unified_completion_check() で完了メッセージも生成されます
+        """
         return (
             "素晴らしいです！必要な情報が揃いました。\n"
             "それでは、あなたの未来の家族と会話を始めましょう。\n"
@@ -843,7 +1017,10 @@ JSONの外に余計なテキストを含めないでください。
             )
 
     async def _extract_missing_information(self, user_message: str, missing_fields: List[str]) -> Dict[str, Any]:
-        """不足しているフィールドのみ抽出"""
+        """不足しているフィールドのみ抽出
+
+        **非推奨**: _unified_completion_check() を使用してください
+        """
         if not missing_fields:
             return {}
 
@@ -881,7 +1058,13 @@ JSONの外に余計なテキストを含めないでください。
             return {}
 
     async def check_session_completion(self, user_message: str) -> str:
-        """セッション完了判定ツール"""
+        """セッション完了判定ツール（統合版）
+
+        1回のLLM呼び出しで以下を実行:
+        - 不足項目の抽出
+        - 完了判定
+        - 完了メッセージの生成
+        """
         print(f"🔍 完了判定ツールが呼び出されました: {user_message}")
 
         try:
@@ -889,12 +1072,6 @@ JSONの外に余計なテキストを含めないでください。
             await self._add_to_history("user", user_message)
             # 履歴のみ即時保存
             await self._save_conversation_history()
-
-            missing_fields = [
-                key for key in self.required_info
-                if self._is_value_missing(getattr(self.user_profile, key, None))
-            ]
-            await self._extract_missing_information(user_message, missing_fields)
 
             # セッションIDのフォールバック（runを経由しない呼出し対策）
             if not self.current_session:
@@ -909,14 +1086,27 @@ JSONの外に余計なテキストを含めないでください。
                 if not os.path.exists(session_dir):
                     await self.start_session(self.current_session)
 
-            # LLMによる完了判定
-            is_complete = await self._check_completion_with_llm(user_message)
+            # 不足フィールドを特定
+            missing_fields = [
+                key for key in self.required_info
+                if self._is_value_missing(getattr(self.user_profile, key, None))
+            ]
+
+            # 統合完了チェック（1回のLLM呼び出しで抽出・判定・メッセージ生成）
+            result = await self._unified_completion_check(user_message, missing_fields)
+
+            # 抽出された情報をプロファイルに反映
+            if result.get("missing_info"):
+                await self._update_user_profile(result["missing_info"])
+                self.last_extracted_fields = result["missing_info"]
+
+            is_complete = result.get("is_complete", False)
+            completion_message = result.get("completion_message")
 
             if is_complete:
                 print("✅ セッション完了と判定されました")
                 if self._session_state != self.SessionState.COMPLETED:
-                    # 締めのメッセージを生成し履歴に記録
-                    completion_message = (await self._generate_completion_message()).strip()
+                    # 完了メッセージを履歴に記録
                     if completion_message:
                         await self._add_to_history("hera", completion_message)
                         await self._save_conversation_history()
@@ -925,14 +1115,19 @@ JSONの外に余計なテキストを含めないでください。
                     await self._save_session_data()
                     self._session_state = self.SessionState.COMPLETED
 
-                # family_agentへの切り替えはtransfer_to_agentに任せ、追加メッセージは返さない
-                return ""
+                    # 完了メッセージを返して、Familyエージェントへの遷移を促す
+                    return f"COMPLETED: {completion_message}"
+                else:
+                    # 既に完了済みの場合は簡潔なメッセージ
+                    return "COMPLETED"
             else:
                 print("⏳ セッション継続と判定されました")
                 return "INCOMPLETE"
 
         except Exception as e:
             print(f"❌ 完了判定エラー: {e}")
+            import traceback
+            traceback.print_exc()
             return f"完了判定中にエラーが発生しました: {str(e)}"
 
 # ADK用のエクスポート関数
