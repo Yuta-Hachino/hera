@@ -73,7 +73,9 @@ static/media/
 tmp/
 temp/
 .tmp/
-backend/tmp/user_sessions/*/  # ユーザーセッションデータを除外
+
+# セッションデータ（backend直下のtmpディレクトリ）
+backend/tmp/
 
 # 証明書
 *.pem

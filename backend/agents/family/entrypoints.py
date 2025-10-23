@@ -14,6 +14,7 @@ from google.genai import types
 from .letter_generator import LetterGenerator
 from .story_generator import StoryGenerator
 from .tooling import FamilyToolSet
+from ..config import get_sessions_dir
 
 # ロガー設定
 logger = logging.getLogger(__name__)
@@ -25,12 +26,7 @@ class FamilyProfileLoader:
     @classmethod
     def get_base_dir(cls) -> str:
         if cls._base_dir is None:
-            cls._base_dir = os.environ.get("FAMILY_SESSIONS_DIR") or os.path.join(
-                os.path.dirname(__file__),
-                "..",
-                "tmp",
-                "user_sessions",
-            )
+            cls._base_dir = os.environ.get("FAMILY_SESSIONS_DIR") or get_sessions_dir()
         return cls._base_dir
 
     @classmethod
