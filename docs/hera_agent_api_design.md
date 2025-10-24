@@ -45,6 +45,42 @@ curl http://localhost:8080/api/sessions/{session_id}/status
 
 ---
 
+### ✔️ 新API: 画像アップロード・生成・合成
+
+#### 1. ユーザー画像アップロード
+`POST /api/sessions/{session_id}/photos/user`
+- multipart/form-data
+- フロントから画像アップロード、`photos/user.png`に保存
+
+#### 2. パートナー画像生成
+`POST /api/sessions/{session_id}/generate-image`
+- JSON: `{ "target": "partner" }`
+- `partner_face_description`をGemini APIプロンプトに変換→生成→`photos/partner.png`
+
+#### 3. 子ども画像合成（拡張予定）
+`POST /api/sessions/{session_id}/generate-child-image`
+- `photos/user.png`と`photos/partner.png`が必須
+- 顔合成アルゴリズムで生成し`photos/child_1.png`等に保存
+
+#### 保存ファイル例
+- `photos/user.png`: アップロード画像
+- `photos/partner.png`: Gemini生成画像
+- `photos/child_1.png`: 合成画像
+
+#### レスポンス例
+```json
+{
+  "status": "success",
+  "image_url": "/api/sessions/xxxx/photos/partner.png",
+  "meta": { "target": "partner", ... }
+}
+```
+
+#### エラー
+- 入力画像/材料の未登録などで失敗時は `status: error` とエラー理由返却
+
+---
+
 ## ディレクトリと主要コンポーネント
 
 - `backend/agents/hera/`
