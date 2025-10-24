@@ -1,36 +1,107 @@
-# Heraエージェント API設計ドキュメント
+# Heraエージェント API設計ドキュメント（リニューアル版: 2025/10/24）
 
 ## 概要
-ヘラエージェント（家族愛AI）とフロントエンド間のやりとりを行うためのAPI設計です。セッション管理・情報抽出・履歴/状態同期を軸に、運用や拡張性も考慮した設計となっています。
+
+本システムは、Google ADK/Gemini連携のHera（家族観・価値観ヒアリングAI）をFlaskベースREST APIサーバーで提供します。
+
+- **REST API**: Flask（8080ポート）
+- **永続化**: セッションごとにJSONファイル永続化
+- **セッション管理**: APIから新規/更新/完了、進捗取得
+- **Hera Family Agent**: 情報収集からファミリー連携まで一貫制御
 
 ---
 
-## エージェント基幹処理とAPI設計
+## エンドポイント一覧・役割
 
-- セッション単位でプロフィール・履歴・状態を管理
-- ユーザーメッセージ送信でLLMによる自動抽出＆進捗管理
-- 履歴やプロフィール、進捗の取得・明示終了などにも対応
+- **POST /api/sessions**: ユーザーごとの新規セッション生成（UUID払い出し）
+- **POST /api/sessions/{session_id}/messages**: ユーザー発話を送信、情報抽出LLM & エージェント返答
+- **GET /api/sessions/{session_id}/status**: 収集済みプロフィール・履歴・進捗取得
+- **POST /api/sessions/{session_id}/complete**: 必須情報揃ったら完了・Family Agent側に転送
+- **GET /api/health**: サーバーヘルス
+
+### 主要実体
+- user_profile: 各セッションの構造化ユーザープロファイル
+- conversation_history: 全発話履歴リスト
+- information_progress: 必須項目ごとの収集進捗（論理名:bool）
 
 ---
 
-## APIエンドポイント一覧
+## 代表的APIリクエスト/レスポンス例（curl形式）
 
-### 1. セッション開始
-|メソッド|パス|
-|:--|:--|
-|POST|/api/sessions|
+```bash
+# セッション作成
+curl -X POST http://localhost:8080/api/sessions
 
-#### リクエスト
+# 発話送信
+curl -X POST http://localhost:8080/api/sessions/{session_id}/messages \
+  -H "Content-Type: application/json" \
+  -d '{"message": "こんにちは、33歳のエンジニアです"}'
+
+# 進捗・状態確認
+curl http://localhost:8080/api/sessions/{session_id}/status
+```
+
+（※詳細なschema例や構造は従来通り継続記載）
+
+---
+
+### ✔️ 新API: 画像アップロード・生成・合成
+
+#### 1. ユーザー画像アップロード
+`POST /api/sessions/{session_id}/photos/user`
+- multipart/form-data
+- フロントから画像アップロード、`photos/user.png`に保存
+
+#### 2. パートナー画像生成
+`POST /api/sessions/{session_id}/generate-image`
+- JSON: `{ "target": "partner" }`
+- `partner_face_description`をGemini APIプロンプトに変換→生成→`photos/partner.png`
+
+#### 3. 子ども画像合成（拡張予定）
+`POST /api/sessions/{session_id}/generate-child-image`
+- `photos/user.png`と`photos/partner.png`が必須
+- 顔合成アルゴリズムで生成し`photos/child_1.png`等に保存
+
+#### 保存ファイル例
+- `photos/user.png`: アップロード画像
+- `photos/partner.png`: Gemini生成画像
+- `photos/child_1.png`: 合成画像
+
+#### レスポンス例
 ```json
 {
-  "user_id": "string（任意）"
+  "status": "success",
+  "image_url": "/api/sessions/xxxx/photos/partner.png",
+  "meta": { "target": "partner", ... }
 }
 ```
 
-#### レスポンス
+#### エラー
+- 入力画像/材料の未登録などで失敗時は `status: error` とエラー理由返却
+
+---
+
+## ディレクトリと主要コンポーネント
+
+- `backend/agents/hera/`
+  - `adk_hera_agent.py`: Heraエージェント（ADK・Geminiベース、抽出/ヒアリング主担当）
+  - `root_agent.py`: エージェントエントリポイント
+- `backend/agents/family/`: Family Agent関連
+- `backend/api/`: FlaskによるAPI実装（将来的なREST/HTTP定義で利用）
+- `backend/tmp/user_sessions/`: プロファイル・履歴・生成物保存
+
+---
+
+## API設計・やりとり概要
+
+### 1. セッションの作成
+
+**POST /api/sessions**
+- ユーザーごとの新規セッション生成
+- レスポンス例:
 ```json
 {
-  "session_id": "abc-123-xyz",
+  "session_id": "abc-123",
   "created_at": "2025-10-22T12:01:23",
   "status": "created"
 }
@@ -38,64 +109,47 @@
 
 ---
 
-### 2. メッセージ送信・情報抽出
-|メソッド|パス|
-|:--|:--|
-|POST|/api/sessions/{session_id}/messages|
+### 2. メッセージ送信（情報抽出＆会話進行）
 
-#### リクエスト
+**POST /api/sessions/{session_id}/messages**
+- ユーザー発話を送信、LLMとHeraエージェントが情報抽出＆応答
+- 必須・推奨・補完フィールドを進捗管理
+- レスポンス例:
 ```json
 {
-  "message": "29歳のエンジニアで東京在住です。家族は妻と子供2人です。"
-}
-```
-
-#### レスポンス
-```json
-{
-  "reply": "素敵なご家族ですね。奥様やお子様について、もっと教えていただけますか？",
+  "reply": "ありがとうございます。年齢とパートナーの有無を教えていただけますか？",
   "conversation_history": [
-    {"speaker": "user", "message": "29歳のエンジニア ..."},
-    {"speaker": "hera", "message": "素敵なご家族ですね ..."}
+    {"speaker": "user", "message": "33歳独身 東京です"},
+    {"speaker": "hera", "message": "ありがとうございます..."}
   ],
   "user_profile": {
-    "age": 29, "work_style": "エンジニア", "location": "東京", 
-    "family_structure": {"wife": 1, "children": 2}
+    "age": 33,
+    "relationship_status": "single",
+    "location": "東京"
   },
   "information_progress": {
-    "age": true, "gender": false, "income_range": false
+    "age": true,
+    "relationship_status": true,
+    "user_personality_traits": false,
+    "children_info": false
   }
 }
 ```
----
-
-### 3. セッション進捗・状態取得
-|メソッド|パス|
-|:--|:--|
-|GET|/api/sessions/{session_id}/status|
-
-#### レスポンス
-```json
-{
-  "user_profile": { ... },
-  "information_progress": { ... },
-  "conversation_history": [ ... ]
-}
-```
 
 ---
 
-### 4. セッション終了（完了保存）
-|メソッド|パス|
-|:--|:--|
-|POST|/api/sessions/{session_id}/complete|
+### 3. 収集情報・進捗の取得
 
-#### リクエスト
-```json
-{}
-```
+**GET /api/sessions/{session_id}/status**
+- 現在までに抽出されたプロフィール・進捗・履歴の一括取得
 
-#### レスポンス
+---
+
+### 4. セッション完了
+
+**POST /api/sessions/{session_id}/complete**
+- 必須情報が全て揃った段階で呼ばれ、「family_session_agent」に連携
+- レスポンス例:
 ```json
 {
   "message": "収集が完了しました。ありがとうございました。",
@@ -106,26 +160,25 @@
 
 ---
 
-## 実装意図・運用ポイント
+### 5. 生成データへのアクセス
 
-- **メッセージ送信APIで「LLM抽出結果」「最新プロファイル」「進捗」すべて返す設計**
-- **写真アップロード・拡張性：今後必要に応じ追加可**
-- **FastAPI/Flask等の非同期実装しやすい構成**
-- **セッションごとにADKHeraAgentを内部で管理・切り替え（tmp保存＋メモリ保持想定）**
-- **`user_profile`, `information_progress`フィールドで進捗UIも構築しやすい**
+- `backend/tmp/user_sessions/<session_id>/user_profile.json`：プロフィール
+- `backend/tmp/user_sessions/<session_id>/conversation_history.json`：会話履歴
+- `backend/tmp/user_sessions/<session_id>/family_plan.json`：生成ストーリーや手紙等
 
 ---
 
-## 参考：収集情報フィールド（例）
+## 収集情報と構造化プロセス
 
-### 【A】ユーザーから自然言語で収集する情報（生データ）
+### 必須フィールド
 
 #### A-1. 必須項目（Required Fields）
 ユーザーに自然言語で答えてもらう必須情報（これらがnullだと完了しない）：
 
-- **年齢** - 数値（例: 「33歳です」）
-- **交際状況** - 既婚/交際中/独身など（例: 「独身です」）
-- **パートナーの性格** - 自由記述（例: 「明るくて優しい人」「几帳面で計画的」）
+- **年齢(`age`)** - 数値（例: 「33歳です」）
+- **交際状況(`relationship_status`)** - 既婚/交際中/独身など（例: 「独身です」）
+- **パートナーの性格（`current_partner` or `ideal_partner` の `personality_traits` 等）**
+- - 自由記述（例: 「明るくて優しい人」「几帳面で計画的」）
   - 既婚/交際中: 実際のパートナーの性格
   - 独身: 理想のパートナーの性格
 - **パートナーの外見・顔の特徴** - 自由記述（例: 「目が大きくて優しい印象、髪は肩まであるセミロング」）
@@ -136,11 +189,11 @@
 - **子供の希望** - 人数と性別（例: 「女の子1人と男の子1人」「3人欲しい」）
   - 注意: 子供の性格は聞かない（親の性格から自動計算される）
 
-#### A-2. 推奨項目（Recommended Fields）
-収集推奨だが、なくてもFamily Agentへの転送は可能：
+- 居住地 (`location`)
+- 収入レンジ (`income_range`)
+- パートナー顔特徴 (`partner_face_description`)
 
-- **居住地** - 自由記述（例: 「東京都港区」）
-- **収入範囲** - 自由記述（例: 「年収500-700万円」）
+### 補助・拡張フィールド（今後）
 
 #### A-3. オプション項目（Optional Fields）
 実装では定義されているが、現在のヒアリングフローでは基本的に収集しない（ユーザーが自発的に話した場合のみ記録）：
@@ -148,129 +201,41 @@
 - 性別
 - ライフスタイル
 - 家族構成
-- 趣味・興味
-- 現在の仕事スタイル
-- 将来の仕事・キャリア
+- ライフスタイル
+- 趣味 など
+
+### LLMによる変換・保存
+
+- ユーザーメッセージ→`_extract_information()`（Gemini APIプロンプト）
+  - 必須項目をJSONとして抽出
+  - 性格表現→BigFive数値へマッピング
+  - 子供情報のみ配列形式必須
 
 ---
 
-### 【B】LLMが自動的に抽出・推定する項目
+## 進捗管理・内部オブジェクト
 
-ユーザーの自然言語回答（【A】）から、LLMが構造化データに変換：
-
-#### B-1. 基本情報（直接抽出）
-- **`age`** - 年齢（数値）
-- **`relationship_status`** - 交際状況
-  - 値: `"married"` (既婚), `"partnered"` (交際中), `"single"` (独身), `"other"` (その他)
-- **`location`** - 居住地（文字列）
-- **`income_range`** - 収入範囲（文字列）
-- **`partner_face_description`** - パートナーの顔の特徴（文字列）
-
-#### B-2. 性格特性の数値化（推定・変換）
-ユーザーの自然言語での性格描写を **ビッグファイブモデルの数値** に変換：
-
-- **`user_personality_traits`** - ユーザー自身の性格特性（ビッグファイブ）
-  - `openness`: 開放性 (0.0-1.0) - 好奇心旺盛さ、新しいこと好き
-  - `conscientiousness`: 誠実性 (0.0-1.0) - 几帳面さ、計画的
-  - `extraversion`: 外向性 (0.0-1.0) - 社交性、明るさ、活発さ
-  - `agreeableness`: 協調性 (0.0-1.0) - 優しさ、思いやり
-  - `neuroticism`: 神経症傾向 (0.0-1.0) - 心配性さ、慎重さ
-
-- **パートナーの性格特性**（`current_partner.personality_traits` または `ideal_partner.personality_traits`）
-  - 同様にビッグファイブの数値に変換
-  - `temperament`: 性格の総合的な説明（文字列として保持）
-  - `hobbies`: 趣味（言及があれば抽出）
-  - `speaking_style`: 話し方の特徴（推定）
-
-#### B-3. 子供情報の構造化
-- **`children_info`** - 子どもの希望情報（配列形式）
-  - 各要素: `{ "desired_gender": "男" | "女" }`
-  - 例: 「女の子1人と男の子1人」 → `[{"desired_gender": "女"}, {"desired_gender": "男"}]`
-
-**抽出方法**: `_extract_information()` メソッドがGemini APIを使用してプロンプトベースで抽出
-**実装**: `backend/agents/hera/adk_hera_agent.py:307-427`
+- `user_profile` (pydantic)
+- `information_progress` (進捗ブール値マッピング)
+- `conversation_history` (発話リスト)
 
 ---
 
-### 【C】内部的に自動生成される項目（計算・合成）
+## Family Agent連携（転送フロー）
 
-【B】で抽出された構造化データを基に、さらに高度な処理を実行：
-
-#### C-1. 子どもの性格特性（自動計算）
-- **計算方法**: `PersonalityCalculator`が親のビッグファイブ性格特性から科学的に計算
-- **入力**: `user_personality_traits` + `current_partner.personality_traits` (または `ideal_partner.personality_traits`)
-- **出力**: 各子どもの`BigFiveTraits`（遺伝と環境を考慮した確率的モデル）
-- **実装**: `backend/agents/family/personality_calculator.py`
-- **詳細**:
-  - 遺伝的影響: 40-50%（両親の平均値付近に分布）
-  - 環境的影響: ランダム要因を追加
-  - 出生順位による補正（第1子は責任感高め、末子は社交性高めなど）
-
-#### C-2. 子どもの具体的な性格描写（LLM生成）
-- **生成内容**:
-  - `speaking_style`: 話し方の特徴
-  - `traits`: 性格特性リスト（日本語）
-  - `goals`: 目標や願い
-  - `personality_description`: 性格の総合的な説明
-- **生成方法**: `PersonalityCalculator.generate_personality_description()`がGemini APIを使用してビッグファイブから具体的な描写を生成
-- **実装**: `backend/agents/family/personality_calculator.py:57-104`
-
-#### C-3. パートナーの性格特性リスト（変換）
-- **変換内容**: ビッグファイブの数値を日本語の特徴リストに変換
-- **例**: `openness > 0.6` → 「好奇心旺盛」
-- **実装**: `persona_factory.py:242-257` の `_traits_from_big_five()`
-
-#### C-4. システム管理項目
-- **`created_at`** - プロファイル作成日時（自動設定）
-- **会話履歴** - Hera Agentとのやり取り（自動記録）
-- **セッション情報** - セッションID、最終更新時刻など
+- 収集完了時、`transfer_to_agent`等を経てFamily Agent（会話シナリオやストーリー生成）へシームレス転送
+- 生成データ例：家族の日常ストーリー、未来の子供からの手紙など
 
 ---
 
-### 【D】データフロー概要
+## 備考・運用ポイント
 
-```
-[ユーザー入力（自然言語）]
-  ↓ Hera Agentがヒアリング
-[A: 自然言語で情報を収集]
-  - 年齢、交際状況
-  - パートナーの性格（自由記述）
-  - パートナーの外見（自由記述）
-  - ユーザー自身の性格（自由記述）
-  - 子供の希望（自由記述）
-  ↓
-[B: LLMが構造化データに抽出・変換]
-  ↓ _extract_information() → Gemini API
-  - B-1: 基本情報を抽出
-    - age, relationship_status, location, partner_face_description
-  - B-2: 性格を数値化
-    - 「明るくて優しい」→ user_personality_traits: {extraversion: 0.7, agreeableness: 0.8, ...}
-    - 「几帳面で計画的」→ partner.personality_traits: {conscientiousness: 0.8, ...}
-  - B-3: 子供情報を構造化
-    - 「女の子1人と男の子1人」→ [{desired_gender: "女"}, {desired_gender: "男"}]
-  ↓ 保存 (user_profile.json)
-[Family Agentに転送]
-  ↓ PersonaFactory実行
-[C: さらなる自動生成・計算]
-  - C-1: 子どもの性格を計算
-    - PersonalityCalculator.calculate_child_traits()
-    - 親のビッグファイブ → 子どものビッグファイブ（遺伝モデル）
-  - C-2: 具体的な性格描写を生成
-    - LLMで speaking_style, traits, goals等を生成
-  - C-3: 日本語特性リストに変換
-  ↓
-[家族ペルソナ完成]
-  - Partner Persona (B-1, B-2から構築)
-  - Children Personas (C-1, C-2から構築)
-```
+- API設計は拡張志向：今後の画像アップロード・子供毎プロファイル追加も容易
+- セッションごとのJSONファイル保存で一貫した状態管理
+- フロントエンドはREST, WebSocket両対応設計も可能
 
 ---
 
-## 備考/今後の拡張
-- 写真アップロードAPIを別途追加可能
-- 会話履歴取得・ダウンロード、セッション一括管理、削除など
-- OpenAPI（Swagger/Redoc）化も容易
-
----
-
-以上
+以上。
+もし何か追加したい仕様・APIや設計フローがあればご指摘ください。
+この最新状態を docs/hera_agent_api_design.md へ適用/保存も可能です。

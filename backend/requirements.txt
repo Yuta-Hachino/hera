@@ -12,3 +12,11 @@ python-dotenv==1.1.1
 
 # Data validation
 pydantic==2.12.3
+
+# CORS(10/24追加)
+flask-cors==5.0.0
+
+# 画像処理・HTTP通信
+requests==2.31.0
+Werkzeug==3.1.3
+Pillow==12.0.0

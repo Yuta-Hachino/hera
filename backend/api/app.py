@@ -1,113 +1,262 @@
-import os # APIキーを読み込むためにosモジュールを追加
-import google.generativeai as genai # Gemini AIライブラリをインポート
-from dotenv import load_dotenv # .envファイルを読み込むライブラリをインポート
-from flask import Flask, jsonify, request
+import os
+import uuid
+import json
+import requests
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from pydantic import BaseModel
+from dotenv import load_dotenv
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from config import get_sessions_dir
+from werkzeug.utils import secure_filename
+from flask import send_from_directory
 
-# --- 1. APIキーとAIモデルの準備 ---
+load_dotenv()
 
-# .envファイルから環境変数を読み込む
-load_dotenv() 
-
-# .envに保存したAPIキーを読み込む
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-
-# APIキーを使ってGemini AIを設定
-genai.configure(api_key=GOOGLE_API_KEY)
-
-# 使用するAIモデル（Gemini Pro）を指定
-model = genai.GenerativeModel('gemini-2.0-flash')
-
-# --- 2. Flaskアプリ（司令塔）の準備 ---
+# Flaskアプリ
 app = Flask(__name__)
+CORS(app)
 
-# --- 3. 「窓口（API）」の作成 ---
+# セッションディレクトリ
+SESSIONS_DIR = get_sessions_dir()
+os.makedirs(SESSIONS_DIR, exist_ok=True)
 
-@app.route("/v1/health", methods=["GET"])
-def health_check():
-    return jsonify({"status": "ok"})
+# ADK Web UIのベースURL
+ADK_BASE_URL = os.getenv("ADK_BASE_URL", "http://localhost:8000")
 
-@app.route("/v1/simulate", methods=["POST"])
-def simulate_family():
+class MessageRequest(BaseModel):
+    message: str
+
+# Utility関数
+
+def session_path(session_id: str) -> str:
+    return os.path.join(SESSIONS_DIR, session_id)
+
+def load_file(path: str, default=None):
+    if os.path.exists(path):
+        with open(path, encoding='utf-8') as f:
+            return json.load(f)
+    return default
+
+def save_file(path: str, data):
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def call_hera_agent(session_id: str, message: str):
+    """HeraエージェントにHTTP通信でメッセージを送信"""
     try:
-        # --- 4. フロントエンドからデータを受け取る ---
-        data = request.get_json()
-        
-        age = data.get("age")
-        income_range = data.get("income") # "middle" など
-        lifestyle = data.get("lifestyle", {})
-        area = lifestyle.get("area") # "urban" など
-        hobby = lifestyle.get("hobby", "特になし") # 趣味
+        # ADK Web UIの正しいエンドポイントを使用
+        # セッション作成
+        session_response = requests.post(
+            f"{ADK_BASE_URL}/apps/hera/users/user/sessions/{session_id}",
+            json={"state": {}},
+            timeout=30
+        )
 
-        print(f"--- AIへの入力データ: 年齢{age}, 収入{income_range}, 地域{area}, 趣味{hobby} ---")
+        if session_response.status_code not in [200, 201]:
+            print(f"セッション作成エラー: {session_response.status_code}")
 
-        # --- 5. AIに「指示書（プロンプト）」を送る ---
+        # メッセージ送信（ADK Web UIの内部APIを使用）
+        # 実際のメッセージ送信は、ADK Web UIの内部で処理される
+        # ここでは、セッションが作成されたことを確認して、モックレスポンスを返す
 
-        # AIに「未来のストーリー」を作ってもらうための指示書
-        story_prompt = f"""
-        あなたは、ポジティブな未来を描くシナリオライターです。
-        文字数は90語以上、110語未満です。pythonを使って文字数を数えて、
-        指定の文字数範囲に収まるまで生成を繰り返してください
-        以下のユーザー情報に基づき、5年後の幸せな「家族の日常ストーリー」を生成してください。
-        ユーザーが「子どもを持つ未来も悪くないな」とポジティブになれるような、温かい内容にしてください。
-        
-        # ユーザー情報
-        - 年齢: {age}歳
-        - 収入レンジ: {income_range}
-        - 居住地: {area}
-        - 趣味: {hobby}
-
-        # 生成するストーリー（300文字程度）:
-        """
-        
-        # AIに「未来の手紙」を作ってもらうための指示書
-        letter_prompt = f"""
-        あなたは、未来（5年後）に生まれた子ども（5歳）の視点になりきってください。
-        以下のユーザー情報を持つ未来の「パパ」または「ママ」に向けて、愛情のこもった短い「未来の手紙」を生成してください。
-        子どもらしい、少し拙い（つたない）言葉遣いで書いてください。
-
-        # ユーザー情報
-        - 年齢: {age}歳
-        - 居住地: {area}
-        - 趣味: {hobby}
-
-        # 生成する手紙（100文字程度）:
-        """
-
-        # Gemini AIを呼び出して、ストーリーと手紙を「同時」に生成させる
-        # （model.start_chat() を使って会話形式で依頼します）
-        chat = model.start_chat()
-        
-        response_story = chat.send_message(story_prompt)
-        story_text = response_story.text
-
-        response_letter = chat.send_message(letter_prompt)
-        letter_text = response_letter.text
-
-        print("--- AIからの応答（ストーリー） ---")
-        print(story_text)
-        print("--- AIからの応答（手紙） ---")
-        print(letter_text)
-
-        # --- 6. AIの答えをフロントエンドに返す ---
-        ai_response = {
-            "id": f"sim-{age}-{area}",
-            "story": story_text,
-            "imageUrl": "https://via.placeholder.com/600x400.png?text=Family+Illustration", # (画像生成は次のステップ)
-            "letter": letter_text,
-            "imagePrompt": "A dummy image prompt.", # (これもAIに作らせるとGood)
-            "createdAt": "2025-10-21T10:45:00Z" # (本当は現在時刻を入れる)
+        return {
+            "message": "お話を伺いました。続きもぜひ教えてください。",
+            "user_profile": {},
+            "conversation_history": [],
+            "information_progress": {}
         }
-        
-        return jsonify(ai_response)
+    except requests.exceptions.RequestException as e:
+        print(f"エージェント通信エラー: {e}")
+        return {
+            "error": "エージェントとの通信に失敗しました",
+            "message": "申し訳ございません。しばらく時間をおいてから再度お試しください。"
+        }
 
+# 1. セッション新規作成
+@app.route('/api/sessions', methods=['POST'])
+def create_session():
+    session_id = str(uuid.uuid4())
+    path = session_path(session_id)
+    os.makedirs(path, exist_ok=True)
+    os.makedirs(os.path.join(path, 'photos'), exist_ok=True)
+    # プロファイル初期化
+    save_file(os.path.join(path, 'user_profile.json'), {})
+    save_file(os.path.join(path, 'conversation_history.json'), [])
+    return jsonify({
+        'session_id': session_id,
+        'created_at': str(uuid.uuid1().time),
+        'status': 'created'
+    })
+
+# 2. メッセージ送信 & ヒアリング進行
+@app.route('/api/sessions/<session_id>/messages', methods=['POST'])
+def send_message(session_id):
+    req = request.get_json()
+    if not req or 'message' not in req:
+        return jsonify({'error': 'messageフィールド必須'}), 400
+    user_message = req['message']
+
+    # HeraエージェントにHTTP通信でメッセージ送信
+    agent_response = call_hera_agent(session_id, user_message)
+
+    # エラーハンドリング
+    if 'error' in agent_response:
+        return jsonify({
+            'error': agent_response['error'],
+            'reply': agent_response.get('message', 'エラーが発生しました')
+        }), 500
+
+    # セッションデータの保存
+    session_dir = session_path(session_id)
+
+    # ユーザーメッセージを履歴に追加
+    history = load_file(os.path.join(session_dir, 'conversation_history.json'), [])
+    history.append({
+        "speaker": "user",
+        "message": user_message,
+        "timestamp": str(uuid.uuid1().time)
+    })
+
+    # エージェントの応答を履歴に追加
+    history.append({
+        "speaker": "hera",
+        "message": agent_response.get('message', ''),
+        "timestamp": str(uuid.uuid1().time)
+    })
+
+    # プロファイルと履歴を保存
+    save_file(os.path.join(session_dir, 'user_profile.json'), agent_response.get('user_profile', {}))
+    save_file(os.path.join(session_dir, 'conversation_history.json'), history)
+
+    return jsonify({
+        'reply': agent_response.get('message', ''),
+        'conversation_history': history,
+        'user_profile': agent_response.get('user_profile', {}),
+        'information_progress': agent_response.get('information_progress', {})
+    })
+
+# 3. 進捗・履歴・プロフィール取得
+@app.route('/api/sessions/<session_id>/status', methods=['GET'])
+def get_status(session_id):
+    session_dir = session_path(session_id)
+    profile = load_file(os.path.join(session_dir, 'user_profile.json'), {})
+    history = load_file(os.path.join(session_dir, 'conversation_history.json'), [])
+
+    # 進捗情報はファイルから取得（一時的）
+    progress = {}
+
+    return jsonify({
+        'user_profile': profile,
+        'conversation_history': history,
+        'information_progress': progress
+    })
+
+# 4. セッション完了（必須情報充足/保存・family_agent転送準備）
+@app.route('/api/sessions/<session_id>/complete', methods=['POST'])
+def complete_session(session_id):
+    try:
+        # ADK Web UIの正しいエンドポイントを使用
+        # セッション確認
+        session_response = requests.get(
+            f"{ADK_BASE_URL}/apps/hera/users/user/sessions/{session_id}",
+            timeout=30
+        )
+
+        if session_response.status_code not in [200, 201]:
+            print(f"セッション確認エラー: {session_response.status_code}")
+
+        # 最新データを保存
+        session_dir = session_path(session_id)
+        profile = load_file(os.path.join(session_dir, 'user_profile.json'), {})
+        history = load_file(os.path.join(session_dir, 'conversation_history.json'), [])
+
+        return jsonify({
+            'message': '収集が完了しました。ありがとうございました。',
+            'user_profile': profile,
+            'information_complete': True
+        })
+    except requests.exceptions.RequestException as e:
+        return jsonify({'error': f'エージェントとの通信に失敗しました: {str(e)}'}), 500
     except Exception as e:
-        # もしAI呼び出しなどでエラーが起きたら、エラー内容をターミナルに出力
-        print(f"!!! エラー発生: {e}")
-        # フロントエンドには「サーバーエラー」を返す
-        return jsonify({"error": {"message": str(e)}}), 500
+        return jsonify({'error': str(e)}), 500
 
+# ヘルスチェック
+@app.route('/api/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'ok'})
 
-# このファイルが「実行」されたときに、
-# サーバーを起動するためのおまじないです。
+# --- 画像アップロード/生成API ---
+UPLOAD_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
+
+# 1. ユーザー画像アップロード
+@app.route('/api/sessions/<session_id>/photos/user', methods=['POST'])
+def upload_user_photo(session_id):
+    if 'file' not in request.files:
+        return jsonify({'status': 'error', 'error': '画像ファイルがありません'}), 400
+    file = request.files['file']
+    filename = secure_filename(file.filename)
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in UPLOAD_EXTENSIONS:
+        return jsonify({'status': 'error', 'error': '対応形式: jpg, jpeg, png'}), 400
+    dest_dir = os.path.join(session_path(session_id), 'photos')
+    os.makedirs(dest_dir, exist_ok=True)
+    dest_path = os.path.join(dest_dir, 'user.png')
+    file.save(dest_path)
+    return jsonify({'status': 'success', 'image_url': f'/api/sessions/{session_id}/photos/user.png'})
+
+# 画像ファイル取得（静的配信用途）
+@app.route('/api/sessions/<session_id>/photos/<filename>')
+def get_photo(session_id, filename):
+    dirpath = os.path.join(session_path(session_id), 'photos')
+    return send_from_directory(dirpath, filename)
+
+# 2. パートナー画像生成
+@app.route('/api/sessions/<session_id>/generate-image', methods=['POST'])
+def generate_partner_image(session_id):
+    req = request.get_json() or {}
+    target = req.get('target')
+    if target != 'partner':
+        return jsonify({'status': 'error', 'error': '現在partnerのみ対応'}), 400
+    # プロファイルから顔特徴取得
+    session_dir = session_path(session_id)
+    prof = load_file(os.path.join(session_dir, 'user_profile.json'), {})
+    desc = prof.get('partner_face_description')
+    if not desc:
+        return jsonify({'status': 'error', 'error': 'partner_face_descriptionが未入力'}), 400
+    prompt = f"パートナーの顔の特徴: {desc}"
+    try:
+        from google.generativeai import GenerativeModel
+        gm = GenerativeModel('gemini-2.5-pro')
+        # 仮: 本来は画像生成APIを使う（ここはプロンプトをtextのままダミー画像返すスタブ）
+        # 実際は gm.generate_image(prompt=...) などを記載
+        # 今はダミー生成(JPEG白紙画像)
+        from PIL import Image
+        img = Image.new('RGB', (512, 512), color='white')
+        dest_dir = os.path.join(session_dir, 'photos')
+        os.makedirs(dest_dir, exist_ok=True)
+        dest_path = os.path.join(dest_dir, 'partner.png')
+        img.save(dest_path)
+        return jsonify({'status': 'success', 'image_url': f'/api/sessions/{session_id}/photos/partner.png', 'meta': {'target': 'partner', 'prompt_used': prompt}})
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': f'Gemini API error: {e}'})
+
+# 3. 子ども画像 合成API（スタブ）
+@app.route('/api/sessions/<session_id>/generate-child-image', methods=['POST'])
+def generate_child_image(session_id):
+    session_dir = session_path(session_id)
+    img_user = os.path.join(session_dir, 'photos', 'user.png')
+    img_partner = os.path.join(session_dir, 'photos', 'partner.png')
+    if not (os.path.exists(img_user) and os.path.exists(img_partner)):
+        return jsonify({'status': 'error', 'error': 'user/partner画像が両方必要'}), 400
+    # 子ども画像は現状ダミー生成(白)→本番は合成APIやGAN画像生成等に拡張
+    from PIL import Image
+    img = Image.new('RGB', (512, 512), color='white')
+    dest_path = os.path.join(session_dir, 'photos', 'child_1.png')
+    img.save(dest_path)
+    return jsonify({'status': 'success', 'image_url': f'/api/sessions/{session_id}/photos/child_1.png', 'meta': {'target': 'child', 'child_ver': 1}})
+
 if __name__ == "__main__":
-    app.run(debug=True, port=8000)
+    app.run(debug=True, port=8080)
