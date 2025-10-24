@@ -104,13 +104,13 @@ python app.py
 ### フルフローテスト
 ```bash
 cd backend
-python test_full_flow.py
+python3 tests/test_full_flow.py
 ```
 
 ### 自動テストスクリプト
 ```bash
 cd backend
-./run_test.sh
+./tests/run_test.sh
 ```
 
 詳細なテスト情報は [API README](api/README.md) を参照してください。
