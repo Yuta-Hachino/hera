@@ -11,6 +11,8 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config import get_sessions_dir
 from agents.hera.adk_hera_agent import ADKHeraAgent
 import asyncio
+from werkzeug.utils import secure_filename
+from flask import send_from_directory
 
 load_dotenv() 
 
@@ -137,6 +139,76 @@ def complete_session(session_id):
 @app.route('/api/health', methods=['GET'])
 def health():
     return jsonify({'status': 'ok'})
+
+# --- 画像アップロード/生成API ---
+UPLOAD_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
+
+# 1. ユーザー画像アップロード
+@app.route('/api/sessions/<session_id>/photos/user', methods=['POST'])
+def upload_user_photo(session_id):
+    if 'file' not in request.files:
+        return jsonify({'status': 'error', 'error': '画像ファイルがありません'}), 400
+    file = request.files['file']
+    filename = secure_filename(file.filename)
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in UPLOAD_EXTENSIONS:
+        return jsonify({'status': 'error', 'error': '対応形式: jpg, jpeg, png'}), 400
+    dest_dir = os.path.join(session_path(session_id), 'photos')
+    os.makedirs(dest_dir, exist_ok=True)
+    dest_path = os.path.join(dest_dir, 'user.png')
+    file.save(dest_path)
+    return jsonify({'status': 'success', 'image_url': f'/api/sessions/{session_id}/photos/user.png'})
+
+# 画像ファイル取得（静的配信用途）
+@app.route('/api/sessions/<session_id>/photos/<filename>')
+def get_photo(session_id, filename):
+    dirpath = os.path.join(session_path(session_id), 'photos')
+    return send_from_directory(dirpath, filename)
+
+# 2. パートナー画像生成
+@app.route('/api/sessions/<session_id>/generate-image', methods=['POST'])
+def generate_partner_image(session_id):
+    req = request.get_json() or {}
+    target = req.get('target')
+    if target != 'partner':
+        return jsonify({'status': 'error', 'error': '現在partnerのみ対応'}), 400
+    # プロファイルから顔特徴取得
+    session_dir = session_path(session_id)
+    prof = load_file(os.path.join(session_dir, 'user_profile.json'), {})
+    desc = prof.get('partner_face_description')
+    if not desc:
+        return jsonify({'status': 'error', 'error': 'partner_face_descriptionが未入力'}), 400
+    prompt = f"パートナーの顔の特徴: {desc}"
+    try:
+        from google.generativeai import GenerativeModel
+        gm = GenerativeModel('gemini-2.5-pro')
+        # 仮: 本来は画像生成APIを使う（ここはプロンプトをtextのままダミー画像返すスタブ）
+        # 実際は gm.generate_image(prompt=...) などを記載
+        # 今はダミー生成(JPEG白紙画像)
+        from PIL import Image
+        img = Image.new('RGB', (512, 512), color='white')
+        dest_dir = os.path.join(session_dir, 'photos')
+        os.makedirs(dest_dir, exist_ok=True)
+        dest_path = os.path.join(dest_dir, 'partner.png')
+        img.save(dest_path)
+        return jsonify({'status': 'success', 'image_url': f'/api/sessions/{session_id}/photos/partner.png', 'meta': {'target': 'partner', 'prompt_used': prompt}})
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': f'Gemini API error: {e}'})
+
+# 3. 子ども画像 合成API（スタブ）
+@app.route('/api/sessions/<session_id>/generate-child-image', methods=['POST'])
+def generate_child_image(session_id):
+    session_dir = session_path(session_id)
+    img_user = os.path.join(session_dir, 'photos', 'user.png')
+    img_partner = os.path.join(session_dir, 'photos', 'partner.png')
+    if not (os.path.exists(img_user) and os.path.exists(img_partner)):
+        return jsonify({'status': 'error', 'error': 'user/partner画像が両方必要'}), 400
+    # 子ども画像は現状ダミー生成(白)→本番は合成APIやGAN画像生成等に拡張
+    from PIL import Image
+    img = Image.new('RGB', (512, 512), color='white')
+    dest_path = os.path.join(session_dir, 'photos', 'child_1.png')
+    img.save(dest_path)
+    return jsonify({'status': 'success', 'image_url': f'/api/sessions/{session_id}/photos/child_1.png', 'meta': {'target': 'child', 'child_ver': 1}})
 
 if __name__ == "__main__":
     app.run(debug=True, port=8080)
