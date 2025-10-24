@@ -1,8 +1,47 @@
-# Heraエージェント API設計ドキュメント（リニューアル版）
+# Heraエージェント API設計ドキュメント（リニューアル版: 2025/10/24）
 
 ## 概要
 
-Heraエージェントは、家族観や価値観ヒアリングを行いながら「未来の家族像」生成・会話体験を実現するAIサービスです。  主に**セッション単位**でプロフィール・会話履歴・進捗状態を管理し、LLMを通じてユーザー情報を抽出・構造化、家族ペルソナ生成やFamily Agentへの転送までを担います。
+本システムは、Google ADK/Gemini連携のHera（家族観・価値観ヒアリングAI）をFlaskベースREST APIサーバーで提供します。
+
+- **REST API**: Flask（8080ポート）
+- **永続化**: セッションごとにJSONファイル永続化
+- **セッション管理**: APIから新規/更新/完了、進捗取得
+- **Hera Family Agent**: 情報収集からファミリー連携まで一貫制御
+
+---
+
+## エンドポイント一覧・役割
+
+- **POST /api/sessions**: ユーザーごとの新規セッション生成（UUID払い出し）
+- **POST /api/sessions/{session_id}/messages**: ユーザー発話を送信、情報抽出LLM & エージェント返答
+- **GET /api/sessions/{session_id}/status**: 収集済みプロフィール・履歴・進捗取得
+- **POST /api/sessions/{session_id}/complete**: 必須情報揃ったら完了・Family Agent側に転送
+- **GET /api/health**: サーバーヘルス
+
+### 主要実体
+- user_profile: 各セッションの構造化ユーザープロファイル
+- conversation_history: 全発話履歴リスト
+- information_progress: 必須項目ごとの収集進捗（論理名:bool）
+
+---
+
+## 代表的APIリクエスト/レスポンス例（curl形式）
+
+```bash
+# セッション作成
+curl -X POST http://localhost:8080/api/sessions
+
+# 発話送信
+curl -X POST http://localhost:8080/api/sessions/{session_id}/messages \
+  -H "Content-Type: application/json" \
+  -d '{"message": "こんにちは、33歳のエンジニアです"}'
+
+# 進捗・状態確認
+curl http://localhost:8080/api/sessions/{session_id}/status
+```
+
+（※詳細なschema例や構造は従来通り継続記載）
 
 ---
 
