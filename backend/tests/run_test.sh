@@ -18,12 +18,12 @@ if [ -d ".venv" ]; then
     source .venv/bin/activate
 fi
 
-# バックエンドディレクトリに移動
-cd backend
+# バックエンドディレクトリに移動（testsフォルダから1つ上のディレクトリ）
+cd ..
 
 # 必要な依存関係の確認
 echo -e "${BLUE}依存関係を確認中...${NC}"
-python -c "import requests, PIL" 2>/dev/null || {
+python3 -c "import requests, PIL" 2>/dev/null || {
     echo -e "${RED}必要な依存関係が不足しています。${NC}"
     echo "pip install requests pillow"
     exit 1
@@ -49,6 +49,6 @@ fi
 
 # テスト実行
 echo -e "${GREEN}テストを実行中...${NC}"
-python test_full_flow.py
+python3 tests/test_full_flow.py
 
 echo -e "${GREEN}✅ テスト完了！${NC}"
