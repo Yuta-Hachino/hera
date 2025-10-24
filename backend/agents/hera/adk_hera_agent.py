@@ -948,7 +948,7 @@ JSONの外に余計なテキストを含めないでください。
                 await self.start_session(self.current_session)
 
         # ツールを直接呼び出して応答を生成（標準フロー無効化のため）
-        payload_raw = await self._extract_user_info_tool(message)
+        payload_raw = await self.extract_user_info(message)
 
         if isinstance(payload_raw, dict):
             payload = payload_raw
