@@ -45,44 +45,118 @@ APIサーバーは `http://localhost:8080` で起動します。
 ```bash
 # プロジェクトルートから
 cd backend
-python test_full_flow.py
+python3 tests/test_full_flow.py
 ```
 
-### 2. 個別APIテスト
+### 2. 手動APIテスト（推奨）
 
-#### セッション作成
+#### 前提条件
+- APIサーバーが起動していること（`python3 api/app.py`）
+- ADK Web UIが起動していること（`adk web agents`）
+
+#### Step 1: ヘルスチェック
+```bash
+curl -s http://localhost:8080/api/health
+```
+**期待結果**: `{"status": "ok"}`
+
+#### Step 2: セッション作成
 ```bash
 curl -X POST http://localhost:8080/api/sessions
 ```
+**期待結果**: セッションIDが返される
+```json
+{
+  "session_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "status": "created",
+  "created_at": "2025-01-21T10:00:00Z"
+}
+```
 
-#### メッセージ送信
+#### Step 3: メッセージ送信（Heraエージェントとの会話）
 ```bash
-curl -X POST http://localhost:8080/api/sessions/{session_id}/messages \
+# メッセージ1: 自己紹介
+curl -X POST http://localhost:8080/api/sessions/{SESSION_ID}/messages \
   -H "Content-Type: application/json" \
   -d '{"message": "こんにちは、33歳のエンジニアです"}'
+
+# メッセージ2: 居住地・状況
+curl -X POST http://localhost:8080/api/sessions/{SESSION_ID}/messages \
+  -H "Content-Type: application/json" \
+  -d '{"message": "独身で、東京に住んでいます"}'
+
+# メッセージ3: 理想のパートナー
+curl -X POST http://localhost:8080/api/sessions/{SESSION_ID}/messages \
+  -H "Content-Type: application/json" \
+  -d '{"message": "理想のパートナーは明るくて優しい人です"}'
+
+# メッセージ4: パートナーの特徴
+curl -X POST http://localhost:8080/api/sessions/{SESSION_ID}/messages \
+  -H "Content-Type: application/json" \
+  -d '{"message": "パートナーの顔の特徴は、目が大きくて笑顔が素敵な人です"}'
+
+# メッセージ5: 自分の性格
+curl -X POST http://localhost:8080/api/sessions/{SESSION_ID}/messages \
+  -H "Content-Type: application/json" \
+  -d '{"message": "私の性格は社交的で新しいことが好きです"}'
+
+# メッセージ6: 子どもの希望
+curl -X POST http://localhost:8080/api/sessions/{SESSION_ID}/messages \
+  -H "Content-Type: application/json" \
+  -d '{"message": "将来は女の子1人と男の子1人を希望しています"}'
 ```
 
-#### セッション状態確認
-```bash
-curl http://localhost:8080/api/sessions/{session_id}/status
-```
+**注意**: `{SESSION_ID}` はStep 2で取得したセッションIDに置き換えてください。
 
-#### セッション完了
+#### Step 4: セッション状態確認
 ```bash
-curl -X POST http://localhost:8080/api/sessions/{session_id}/complete
+curl -s http://localhost:8080/api/sessions/{SESSION_ID}/status
 ```
+**期待結果**: 会話履歴とプロファイル情報が表示される
 
-#### 画像アップロード
+#### Step 5: セッション完了
 ```bash
-curl -X POST http://localhost:8080/api/sessions/{session_id}/photos/user \
-  -F "file=@dummy_user.png"
+curl -X POST http://localhost:8080/api/sessions/{SESSION_ID}/complete
 ```
+**期待結果**: セッション完了のメッセージが返される
 
-#### 画像生成
+#### Step 6: 画像処理（オプション）
 ```bash
-curl -X POST http://localhost:8080/api/sessions/{session_id}/generate-image \
+# ユーザー画像アップロード
+curl -X POST http://localhost:8080/api/sessions/{SESSION_ID}/photos/user \
+  -F "file=@api/dummy_user.png"
+
+# パートナー画像生成
+curl -X POST http://localhost:8080/api/sessions/{SESSION_ID}/generate-image \
   -H "Content-Type: application/json" \
   -d '{"type": "partner", "description": "明るくて優しい人"}'
+
+# 子ども画像生成
+curl -X POST http://localhost:8080/api/sessions/{SESSION_ID}/generate-child-image \
+  -H "Content-Type: application/json" \
+  -d '{"type": "child", "description": "両親の特徴を組み合わせた子ども"}'
+```
+
+### 3. 自動テストスクリプト
+```bash
+cd backend
+./tests/run_test.sh
+```
+
+### 4. レスポンスの見やすくする方法
+
+#### JSONを整形して表示
+```bash
+curl -X POST http://localhost:8080/api/sessions/{SESSION_ID}/messages \
+  -H "Content-Type: application/json" \
+  -d '{"message": "テスト"}' | python3 -m json.tool
+```
+
+#### 日本語メッセージのみを抽出
+```bash
+curl -X POST http://localhost:8080/api/sessions/{SESSION_ID}/messages \
+  -H "Content-Type: application/json" \
+  -d '{"message": "テスト"}' | python3 -c "import sys, json; print(json.load(sys.stdin)['reply'])"
 ```
 
 ## API エンドポイント
