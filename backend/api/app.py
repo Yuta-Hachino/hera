@@ -12,7 +12,7 @@ from config import get_sessions_dir
 from agents.hera.adk_hera_agent import ADKHeraAgent
 import asyncio
 
-load_dotenv()
+load_dotenv() 
 
 # Flaskアプリ
 app = Flask(__name__)

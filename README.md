@@ -2,9 +2,15 @@
 
 ## 📋 プロダクト概要
 
-AIファミリー・シミュレーターは、ユーザーが年齢・収入・ライフスタイルを入力すると、生成AIが「未来の家族の日常ストーリー」「家族旅行のイラスト」「子どもからの未来の手紙」を生成するアプリケーションです。
+AIファミリー・シミュレーターは、Google ADKベースのHeraエージェントが自然な対話を通じてユーザー情報を収集し、生成AIが「未来の家族の日常ストーリー」「家族旅行のイラスト」「子どもからの未来の手紙」を生成するアプリケーションです。
 
 **目的**: 結婚や出産に対する心理的な不安を軽減し、「子どもを持つ未来」をポジティブに体験してもらうこと
+
+### 🔧 技術的特徴
+- **Google ADK統合**: 高度なエージェント対話システム
+- **REST API**: Flask ベースのWeb API（ポート8080）
+- **セッション管理**: ファイルベースの永続化
+- **Unicode対応**: Windows環境での文字エンコーディング問題を解決
 
 ### 🎯 プロダクト評価
 
@@ -137,9 +143,12 @@ Google ADKの正式なフレームワークを使用した高度なエージェ�
 - **音声出力**: Google Cloud Text-to-Speech
 
 ### バックエンド
-- **AI生成**: OpenAI GPT API + Google Cloud AI Platform
-- **画像生成**: Gemini nanobanana
+- **API サーバー**: Flask + CORS対応
+- **AI生成**: Google Gemini API + Google ADK
+- **エージェント**: ADKHeraAgent（Google ADK統合）
+- **画像生成**: Gemini API
 - **音声処理**: Google Cloud Speech-to-Text & Text-to-Speech
+- **セッション管理**: ファイルベース（JSON）
 
 ### インフラ
 - **ホスティング**: ローカルホスト
@@ -180,15 +189,46 @@ cd backend
 cp env.example .env
 # .envファイルを編集してAPIキーを設定
 
-# 4. ADKエージェントを起動（agentsディレクトリを指定）
-adk web agents
-# http://localhost:8000 にアクセス
+# 4. APIサーバーを起動
+cd backend
+python api/app.py
+# http://localhost:8080 にアクセス
 ```
 
-### 利用可能なエージェント
+### 利用可能なAPI
 
-1. **hera_session_agent** - プロファイル収集エージェント
-2. **family_session_agent** - 家族会話エージェント（ストーリー・手紙生成）
+#### REST API エンドポイント
+
+1. **セッション管理**
+   - `POST /api/sessions` - セッション作成
+   - `GET /api/sessions/{id}/status` - セッション状態取得
+   - `POST /api/sessions/{id}/complete` - セッション完了
+
+2. **対話機能**
+   - `POST /api/sessions/{id}/messages` - メッセージ送信・ヒアリング
+
+3. **システム**
+   - `GET /api/health` - ヘルスチェック
+
+#### 利用可能なエージェント
+
+1. **ADKHeraAgent** - プロファイル収集エージェント（Google ADK統合）
+2. **Family Agent** - 家族会話エージェント（ストーリー・手紙生成）
+
+### API使用例
+
+```bash
+# 1. セッション作成
+curl -X POST http://localhost:8080/api/sessions
+
+# 2. メッセージ送信
+curl -X POST http://localhost:8080/api/sessions/{session_id}/messages \
+  -H "Content-Type: application/json" \
+  -d '{"message": "こんにちは、33歳のエンジニアです"}'
+
+# 3. セッション状態確認
+curl http://localhost:8080/api/sessions/{session_id}/status
+```
 
 詳しくは [backend/README.md](backend/README.md) をご覧ください。
 
