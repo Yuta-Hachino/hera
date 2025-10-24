@@ -44,32 +44,130 @@ def save_file(path: str, data):
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-def call_hera_agent(session_id: str, message: str):
-    """HeraエージェントにHTTP通信でメッセージを送信"""
+def ensure_adk_session(app_name: str, user_id: str, session_id: str, base_url: str):
+    """ADKセッションが存在するか確認し、存在しない場合は作成する"""
     try:
-        # ADK Web UIの正しいエンドポイントを使用
-        # セッション作成
-        session_response = requests.post(
-            f"{ADK_BASE_URL}/apps/hera/users/user/sessions/{session_id}",
-            json={"state": {}},
-            timeout=30
+        # 既存確認
+        print(f"[DEBUG] セッション確認: {base_url}/apps/{app_name}/users/{user_id}/sessions/{session_id}")
+        r = requests.get(f"{base_url}/apps/{app_name}/users/{user_id}/sessions/{session_id}", timeout=1000)
+        print(f"[DEBUG] セッション確認結果: {r.status_code}")
+        if r.status_code == 200:
+            print(f"[DEBUG] セッション存在")
+            return True
+        if r.status_code == 404:
+            # 明示 ID で作成
+            print(f"[DEBUG] セッション作成: {base_url}/apps/{app_name}/users/{user_id}/sessions/{session_id}")
+            r2 = requests.post(
+                f"{base_url}/apps/{app_name}/users/{user_id}/sessions/{session_id}",
+                json={}, timeout=1000
+            )
+            print(f"[DEBUG] セッション作成結果: {r2.status_code}")
+            result = r2.status_code in (200, 201)
+            print(f"[DEBUG] セッション作成成功: {result}")
+            return result
+        # それ以外はエラー
+        print(f"[DEBUG] セッション確認エラー: {r.status_code}")
+        r.raise_for_status()
+        return False
+    except Exception as e:
+        print(f"ADKセッション確認エラー: {e}")
+        return False
+
+def call_hera_agent(session_id: str, message: str):
+    """ADK Web UIサーバー経由でHeraエージェントにメッセージを送信"""
+    try:
+        # ADK Web UIサーバーの正しいエンドポイントを使用
+        # セッション管理は自動的に処理されるため、直接/runエンドポイントを呼び出し
+        print(f"[DEBUG] /run呼び出し開始: session_id={session_id}, message={message}")
+        message_response = requests.post(
+            f"{ADK_BASE_URL}/run",
+            json={
+                "app_name": "hera",
+                "user_id": "user",
+                "session_id": session_id,
+                "new_message": {
+                    "role": "user",
+                    "parts": [{"text": message}]
+                }
+            },
+            timeout=1000
         )
+        print(f"[DEBUG] /run呼び出し完了: status_code={message_response.status_code}")
 
-        if session_response.status_code not in [200, 201]:
-            print(f"セッション作成エラー: {session_response.status_code}")
+        if message_response.status_code not in [200, 201]:
+            print(f"ADK Web UI通信エラー: {message_response.status_code}")
+            print(f"エラーレスポンス: {message_response.text}")
+            return {
+                "error": "エージェントサーバーとの通信に失敗しました",
+                "message": "申し訳ございません。しばらく時間をおいてから再度お試しください。"
+            }
 
-        # メッセージ送信（ADK Web UIの内部APIを使用）
-        # 実際のメッセージ送信は、ADK Web UIの内部で処理される
-        # ここでは、セッションが作成されたことを確認して、モックレスポンスを返す
+        # レスポンスデータを取得
+        response_data = message_response.json()
+        print(f"[DEBUG] レスポンスデータ型: {type(response_data)}")
 
+        # レスポンスがリストの場合（イベントの配列）
+        if isinstance(response_data, list):
+            events = response_data
+            # イベントからエージェントの応答を抽出
+            agent_messages = []
+            for event in events:
+                # content.parts[].textを抽出
+                if 'content' in event and 'parts' in event['content']:
+                    for part in event['content']['parts']:
+                        if 'text' in part:
+                            agent_messages.append(part['text'])
+
+            # 最新のエージェント応答を取得
+            agent_response = agent_messages[-1] if agent_messages else "申し訳ございません。応答を取得できませんでした。"
+
+            return {
+                "message": agent_response,
+                "user_profile": {},
+                "conversation_history": events,
+                "information_progress": {}
+            }
+        else:
+            # レスポンスが辞書の場合
+            events = response_data.get('events', [])
+            agent_messages = []
+
+            for event in events:
+                if event.get('type') == 'agent_response':
+                    agent_messages.append(event.get('text', ''))
+                elif 'text' in event:
+                    agent_messages.append(event['text'])
+
+            # 最新のエージェント応答を取得
+            agent_response = agent_messages[0] if agent_messages else "申し訳ございません。応答を取得できませんでした。"
+
+            # セッション状態からプロファイル情報を抽出
+            user_profile = response_data.get('user_profile', {})
+
+            return {
+                "message": agent_response,
+                "user_profile": user_profile,
+                "conversation_history": events,
+                "information_progress": {}
+            }
+
+    except requests.exceptions.Timeout as e:
+        print(f"[DEBUG] ADK Web UIタイムアウト: {e}")
+        print(f"[DEBUG] タイムアウト時間: 1000秒")
         return {
-            "message": "お話を伺いました。続きもぜひ教えてください。",
-            "user_profile": {},
-            "conversation_history": [],
-            "information_progress": {}
+            "error": "エージェントサーバーとの通信がタイムアウトしました",
+            "message": "申し訳ございません。しばらく時間をおいてから再度お試しください。"
         }
     except requests.exceptions.RequestException as e:
-        print(f"エージェント通信エラー: {e}")
+        print(f"[DEBUG] ADK Web UI通信エラー: {type(e).__name__}: {e}")
+        return {
+            "error": "エージェントサーバーとの通信に失敗しました",
+            "message": "申し訳ございません。しばらく時間をおいてから再度お試しください。"
+        }
+    except Exception as e:
+        print(f"[DEBUG] エージェント処理エラー: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             "error": "エージェントとの通信に失敗しました",
             "message": "申し訳ございません。しばらく時間をおいてから再度お試しください。"
@@ -97,6 +195,13 @@ def send_message(session_id):
     req = request.get_json()
     if not req or 'message' not in req:
         return jsonify({'error': 'messageフィールド必須'}), 400
+
+    # ✅ ADKセッションを先に作る/確認する
+    ok = ensure_adk_session(app_name="hera", user_id="user",
+                            session_id=session_id, base_url=ADK_BASE_URL)
+    if not ok:
+        return jsonify({'error': 'ADKセッションの作成/確認に失敗しました'}), 502
+
     user_message = req['message']
 
     # HeraエージェントにHTTP通信でメッセージ送信
@@ -139,7 +244,7 @@ def send_message(session_id):
     })
 
 # 3. 進捗・履歴・プロフィール取得
-@app.route('/api/sessions/<session_id>/status', methods=['GET'])
+@app.route('/api/sessions/<session_id>/statfus', methods=['GET'])
 def get_status(session_id):
     session_dir = session_path(session_id)
     profile = load_file(os.path.join(session_dir, 'user_profile.json'), {})
@@ -162,7 +267,7 @@ def complete_session(session_id):
         # セッション確認
         session_response = requests.get(
             f"{ADK_BASE_URL}/apps/hera/users/user/sessions/{session_id}",
-            timeout=30
+            timeout=1000
         )
 
         if session_response.status_code not in [200, 201]:
