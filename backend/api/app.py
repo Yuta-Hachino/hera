@@ -41,6 +41,8 @@ def load_file(path: str, default=None):
     return default
 
 def save_file(path: str, data):
+    # ディレクトリが存在しない場合は作成
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -104,7 +106,6 @@ def call_hera_agent(session_id: str, message: str):
 
         # レスポンスデータを取得
         response_data = message_response.json()
-        print(f"[DEBUG] レスポンスデータ型: {type(response_data)}")
 
         # レスポンスがリストの場合（イベントの配列）
         if isinstance(response_data, list):
@@ -117,6 +118,16 @@ def call_hera_agent(session_id: str, message: str):
                     for part in event['content']['parts']:
                         if 'text' in part:
                             agent_messages.append(part['text'])
+                        # functionResponseからもテキストを抽出
+                        elif 'functionResponse' in part and 'response' in part['functionResponse']:
+                            response_data = part['functionResponse']['response']
+                            if 'result' in response_data:
+                                try:
+                                    result = json.loads(response_data['result'])
+                                    if 'message' in result:
+                                        agent_messages.append(result['message'])
+                                except:
+                                    pass
 
             # 最新のエージェント応答を取得
             agent_response = agent_messages[-1] if agent_messages else "申し訳ございません。応答を取得できませんでした。"
