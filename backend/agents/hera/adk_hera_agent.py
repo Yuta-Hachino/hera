@@ -128,9 +128,9 @@ class ADKHeraAgent:
         )
 
         # デバッグ：ツールの確認
-        print(f"🔧 Heraエージェントのツール数: {len(self.agent.tools) if self.agent.tools else 0}")
+        print(f"[DEBUG] Heraエージェントのツール数: {len(self.agent.tools) if self.agent.tools else 0}")
         if self.agent.tools:
-            print(f"🔧 ツール名: {[getattr(t, 'name', str(t)) for t in self.agent.tools]}")
+            print(f"[DEBUG] ツール名: {[getattr(t, 'name', str(t)) for t in self.agent.tools]}")
 
         # サブエージェントとしてfamily_agentを追加（遅延インポート対応）
         try:
@@ -143,12 +143,12 @@ class ADKHeraAgent:
             from family.entrypoints import create_family_session
             family_agent = create_family_session()
             self.agent.sub_agents = [family_agent]
-            print("✅ Familyエージェントをサブエージェントとして追加しました")
+            print("[SUCCESS] Familyエージェントをサブエージェントとして追加しました")
 
             # デバッグ：サブエージェント追加後もツールが残っているか確認
-            print(f"🔧 サブエージェント追加後のHeraツール数: {len(self.agent.tools) if self.agent.tools else 0}")
+            print(f"[DEBUG] サブエージェント追加後のHeraツール数: {len(self.agent.tools) if self.agent.tools else 0}")
         except Exception as e:
-            print(f"⚠️ Familyエージェントのインポートに失敗しました: {e}")
+            print(f"[WARNING] Familyエージェントのインポートに失敗しました: {e}")
             import traceback
             traceback.print_exc()
             # サブエージェントなしで続行
@@ -274,15 +274,13 @@ class ADKHeraAgent:
 
         # 情報抽出ツール（関数名がツール名になる）
         extract_info_tool = FunctionTool(
-            func=self.extract_user_info,
-            require_confirmation=False
+            func=self.extract_user_info
         )
         tools.append(extract_info_tool)
 
         # セッション完了判定ツール（関数名がツール名になる）
         completion_tool = FunctionTool(
-            func=self.check_session_completion,
-            require_confirmation=False
+            func=self.check_session_completion
         )
         tools.append(completion_tool)
 
