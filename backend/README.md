@@ -93,11 +93,62 @@ python app.py
 ```
 
 エンドポイント:
-- `GET /v1/health` - ヘルスチェック
-- `POST /v1/simulate` - 家族シミュレーション（雛形）
+- `GET /api/health` - ヘルスチェック
+- `POST /api/sessions` - セッション作成
+- `POST /api/sessions/{session_id}/messages` - メッセージ送信
+- `POST /api/sessions/{session_id}/photos/{type}` - 画像アップロード
+- `POST /api/sessions/{session_id}/generate-image` - 画像生成
+
+## 🧪 テスト実行
+
+### フルフローテスト
+```bash
+cd backend
+python test_full_flow.py
+```
+
+### 自動テストスクリプト
+```bash
+cd backend
+./run_test.sh
+```
+
+詳細なテスト情報は [API README](api/README.md) を参照してください。
 
 ## 📚 ドキュメント
 
 - [家族エージェント設計](../docs/FAMILY_AGENT_DESIGN.md)
 - [ストーリー生成仕様](../docs/STORY_GENERATION.md)
 - [手紙生成仕様](../docs/LETTER_GENERATION.md)
+
+## 🖼️ 画像アップロード・生成API（追加機能・設計）
+
+### 1. ユーザー画像アップロード
+- エンドポイント: `POST /api/sessions/{session_id}/photos/user`
+- Content-Type: multipart/form-data
+- サーバー保存先：`photos/user.png`
+
+### 2. パートナー画像生成（Geminiベース）
+- エンドポイント: `POST /api/sessions/{session_id}/generate-image`
+- リクエスト例:
+```json
+{
+  "target": "partner"
+}
+```
+- サーバーが`partner_face_description`をプロンプトにGeminiで画像生成
+- 保存: `photos/partner.png`
+
+### 3. 子ども画像合成（拡張予定）
+- エンドポイント: `POST /api/sessions/{session_id}/generate-child-image`
+- user/partner両画像からAI合成
+- 保存例: `photos/child_1.png`
+
+### 4. 保存ルール
+- `photos/user.png`: ユーザー本人画像
+- `photos/partner.png`: パートナー画像
+- `photos/child_{N}.png`: 子ども画像
+
+### 5. エラーハンドリングと挙動メモ
+- アップロードや生成素材が未登録の場合はエラー返却
+- 画像URL＋metaを返す
