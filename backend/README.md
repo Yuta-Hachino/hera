@@ -93,8 +93,27 @@ python app.py
 ```
 
 エンドポイント:
-- `GET /v1/health` - ヘルスチェック
-- `POST /v1/simulate` - 家族シミュレーション（雛形）
+- `GET /api/health` - ヘルスチェック
+- `POST /api/sessions` - セッション作成
+- `POST /api/sessions/{session_id}/messages` - メッセージ送信
+- `POST /api/sessions/{session_id}/photos/{type}` - 画像アップロード
+- `POST /api/sessions/{session_id}/generate-image` - 画像生成
+
+## 🧪 テスト実行
+
+### フルフローテスト
+```bash
+cd backend
+python test_full_flow.py
+```
+
+### 自動テストスクリプト
+```bash
+cd backend
+./run_test.sh
+```
+
+詳細なテスト情報は [API README](api/README.md) を参照してください。
 
 ## 📚 ドキュメント
 
