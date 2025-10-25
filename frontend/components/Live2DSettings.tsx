@@ -10,6 +10,8 @@ export type Live2DConfig = {
   blinkInterval: [number, number];
   enableLipSync: boolean;
   lipSyncSensitivity: number;
+  ttsVolume: number;
+  ttsVoice: string;
 };
 
 type Live2DSettingsProps = {
@@ -123,20 +125,20 @@ export default function Live2DSettings({ config, onChange }: Live2DSettingsProps
                 {/* スケール */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    拡大率: {config.scale.toFixed(2)}x
+                    拡大率: {config.scale.toFixed(1)}x
                   </label>
                   <input
                     type="range"
-                    min="0.5"
-                    max="2"
-                    step="0.1"
+                    min="2"
+                    max="10"
+                    step="0.5"
                     value={config.scale}
                     onChange={(e) => handleChange('scale', parseFloat(e.target.value))}
                     className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-500"
                   />
                   <div className="flex justify-between text-xs text-gray-500 mt-1">
-                    <span>0.5x</span>
                     <span>2.0x</span>
+                    <span>10.0x</span>
                   </div>
                 </div>
 
@@ -241,6 +243,44 @@ export default function Live2DSettings({ config, onChange }: Live2DSettingsProps
                   </div>
                 )}
 
+                {/* TTS音量 */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    TTS音量: {Math.round(config.ttsVolume * 100)}%
+                  </label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={config.ttsVolume}
+                    onChange={(e) => handleChange('ttsVolume', parseFloat(e.target.value))}
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-500"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>0%</span>
+                    <span>100%</span>
+                  </div>
+                </div>
+
+                {/* TTS音声選択 */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    TTS音声
+                  </label>
+                  <select
+                    value={config.ttsVoice}
+                    onChange={(e) => handleChange('ttsVoice', e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  >
+                    <option value="ja-JP">日本語 (標準)</option>
+                    <option value="ja-JP-Wavenet-A">日本語 (女性 A)</option>
+                    <option value="ja-JP-Wavenet-B">日本語 (女性 B)</option>
+                    <option value="ja-JP-Wavenet-C">日本語 (男性 C)</option>
+                    <option value="ja-JP-Wavenet-D">日本語 (男性 D)</option>
+                  </select>
+                </div>
+
                 {/* リセットボタン */}
                 <button
                   onClick={() => {
@@ -252,6 +292,8 @@ export default function Live2DSettings({ config, onChange }: Live2DSettingsProps
                       blinkInterval: [3000, 5000],
                       enableLipSync: true,
                       lipSyncSensitivity: 1.5,
+                      ttsVolume: 1.0,
+                      ttsVoice: 'ja-JP',
                     });
                   }}
                   className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition-colors"
