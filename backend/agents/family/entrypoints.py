@@ -8,7 +8,6 @@ from typing import Any, ClassVar, Dict
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import Agent
 from google.adk.events.event import Event
-from google.adk.events.event_actions import EventActions
 from google.genai import types
 
 from .letter_generator import LetterGenerator
@@ -157,6 +156,10 @@ class FamilySessionAgent(Agent):
         Returns:
             Event | None: 生成されたストーリーを含むイベント、または情報不足の場合はNone
         """
+        if not callback_context.state.get("family_plan_confirmed"):
+            logger.info("プランの同意が得られていないため後処理をスキップします。")
+            return None
+
         # 1. 旅行情報の収集
         collected = callback_context.state.get("family_trip_info")
         if not collected:
@@ -238,6 +241,8 @@ class FamilySessionAgent(Agent):
             except Exception as e:
                 logger.error(f"ファイル保存中にエラーが発生しました: {e}", exc_info=True)
 
+        callback_context.state["family_conversation_complete"] = True
+
         # 5. ストーリーをイベントとして返却
         # Note: CallbackContext doesn't have 'branch' attribute, so we omit it
         return Event(
@@ -246,7 +251,6 @@ class FamilySessionAgent(Agent):
             content=types.Content(
                 role="assistant", parts=[types.Part(text=story)]
             ),
-            actions=EventActions(end_of_agent=True),
         )
 
     def _generate_fallback_summary(
