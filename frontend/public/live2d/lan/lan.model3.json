@@ -1,0 +1,18 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "lan.moc3",
+		"Textures": [
+			"lan.8192/texture_00.png"
+		],
+		"Physics": "lan.physics3.json",
+		"DisplayInfo": "lan.cdi3.json"
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": []
+		}
+	]
+}
