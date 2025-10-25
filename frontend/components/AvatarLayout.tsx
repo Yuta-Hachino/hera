@@ -32,6 +32,8 @@ export default function AvatarLayout({
     ttsVolume: 1.0,
     ttsVoice: 'ja-JP',
     showGradientBackground: false,
+    backgroundImage: '/images/background.jpg',
+    backgroundColor: '#ffffff',
   });
 
   return (
@@ -41,12 +43,14 @@ export default function AvatarLayout({
           <div
             className="w-full h-full flex items-center justify-center"
             style={{
-              ...(config.showGradientBackground && {
-                background: 'linear-gradient(to bottom, rgb(243 232 255), rgb(252 231 243))',
-              }),
-              backgroundImage: 'url(/images/background.jpg)',
+              backgroundColor: config.backgroundImage ? 'transparent' : (config.backgroundColor || '#ffffff'),
+              backgroundImage: config.backgroundImage ? `url(${config.backgroundImage})` : 'none',
               backgroundSize: 'cover',
               backgroundPosition: 'center',
+              backgroundRepeat: 'no-repeat',
+              ...(config.showGradientBackground && !config.backgroundImage && {
+                background: 'linear-gradient(to bottom, rgb(243 232 255), rgb(252 231 243))',
+              }),
             }}
           >
             <HeraAvatar text={heraText} config={config} />
