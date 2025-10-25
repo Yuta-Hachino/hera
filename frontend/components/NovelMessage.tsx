@@ -18,6 +18,16 @@ const speakerColors: Record<string, string> = {
   child: 'text-pink-600',
   partner: 'text-green-600',
   family: 'text-orange-600',
+  // 日本語のロール名
+  '妻': 'text-rose-600',
+  '夫': 'text-cyan-600',
+  'パートナー': 'text-green-600',
+  '娘': 'text-pink-500',
+  '息子': 'text-blue-500',
+  '長男': 'text-blue-600',
+  '次男': 'text-blue-500',
+  '長女': 'text-pink-600',
+  '次女': 'text-pink-500',
   default: 'text-gray-700',
 };
 
@@ -27,6 +37,11 @@ const speakerNames: Record<string, string> = {
   child: '子ども',
   partner: 'パートナー',
   family: '家族',
+  // 英語のロール名を日本語に変換
+  wife: '妻',
+  husband: '夫',
+  daughter: '娘',
+  son: '息子',
 };
 
 export default function NovelMessage({
@@ -63,8 +78,9 @@ export default function NovelMessage({
     }
   }, [message, isTyping]);
 
-  const displayName = speakerNames[speaker] || speaker;
-  const nameColor = speakerColor || speakerColors[speaker] || speakerColors.default;
+  // speakerNamesに定義があればそれを使用、なければspeaker自体をそのまま表示（日本語のロール名にも対応）
+  const displayName = speakerNames[speaker.toLowerCase()] || speakerNames[speaker] || speaker;
+  const nameColor = speakerColor || speakerColors[speaker.toLowerCase()] || speakerColors[speaker] || speakerColors.default;
 
   return (
     <div className="animate-fade-in mb-6">

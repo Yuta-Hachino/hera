@@ -1,7 +1,7 @@
 // API Response Types
 
 export type ConversationMessage = {
-  speaker: 'user' | 'hera';
+  speaker: 'user' | 'hera' | 'partner' | 'child' | 'family' | string;
   message: string;
   timestamp?: string;
 };
