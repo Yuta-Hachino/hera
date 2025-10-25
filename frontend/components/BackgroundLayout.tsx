@@ -15,7 +15,7 @@ export default function BackgroundLayout({
   heraText,
 }: BackgroundLayoutProps) {
   const [config, setConfig] = useState<Live2DConfig>({
-    positionY: 0,
+    positionY: -0.1, // 上に移動
     positionX: 0,
     scale: 0.8, // 背景用にスケールを調整
     enableBlinking: true,
