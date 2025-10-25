@@ -160,8 +160,15 @@ export default function HeraAvatar({ text, config }: HeraAvatarProps) {
           backgroundColor={0xf5e6ff}
           enableBlinking={config.enableBlinking}
           blinkInterval={config.blinkInterval}
+          blinkDuration={config.blinkDuration}
           enableLipSync={config.enableLipSync}
           lipSyncSensitivity={config.lipSyncSensitivity}
+          enableBreathing={config.enableBreathing}
+          breathingSpeed={config.breathingSpeed}
+          breathingIntensity={config.breathingIntensity}
+          enableMouseTracking={config.enableMouseTracking}
+          trackingSmoothing={config.trackingSmoothing}
+          trackingRange={config.trackingRange}
         />
       )}
     </div>

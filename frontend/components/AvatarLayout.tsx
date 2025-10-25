@@ -17,13 +17,21 @@ export default function AvatarLayout({
   const [config, setConfig] = useState<Live2DConfig>({
     positionY: -0.2,
     positionX: 0,
-    scale: 1.0,
+    scale: 10.0,
     enableBlinking: true,
     blinkInterval: [3000, 5000],
+    blinkDuration: 100,
     enableLipSync: true,
     lipSyncSensitivity: 1.5,
+    enableBreathing: true,
+    breathingSpeed: 1.0,
+    breathingIntensity: 0.5,
+    enableMouseTracking: true,
+    trackingSmoothing: 0.1,
+    trackingRange: 1.0,
     ttsVolume: 1.0,
     ttsVoice: 'ja-JP',
+    showGradientBackground: false,
   });
 
   return (
@@ -33,7 +41,9 @@ export default function AvatarLayout({
           <div
             className="w-full h-full flex items-center justify-center"
             style={{
-              background: 'linear-gradient(to bottom, rgb(243 232 255), rgb(252 231 243))',
+              ...(config.showGradientBackground && {
+                background: 'linear-gradient(to bottom, rgb(243 232 255), rgb(252 231 243))',
+              }),
               backgroundImage: 'url(/images/background.jpg)',
               backgroundSize: 'cover',
               backgroundPosition: 'center',
