@@ -34,7 +34,7 @@ export default function AvatarLayout({
             className="w-full h-full flex items-center justify-center"
             style={{
               background: 'linear-gradient(to bottom, rgb(243 232 255), rgb(252 231 243))',
-              backgroundImage: 'url(/images/background.png)',
+              backgroundImage: 'url(/images/background.jpg)',
               backgroundSize: 'cover',
               backgroundPosition: 'center',
             }}
