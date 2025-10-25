@@ -301,14 +301,11 @@ OK例: 関連する情報をまとめて聞く
 3. transfer_to_agent関数を使って family_session_agent に転送する
 
 利用方針（厳守）：
-- 必ず最初にextract_user_infoを呼び出すこと
-- ツール実行前に通常のテキスト応答を出力してはならない
-- extract_user_infoのfunction_callを出力した場合は、その直後に必ず最終テキストメッセージを返し、ツールから受け取った文字列をそのまま提示すること
+- 情報抽出と返答生成は統合処理で自動実行される
 - check_session_completionは情報が揃ったタイミングで必ず呼び出す
 - 完了後は必ずtransfer_to_agentでfamily_session_agentに転送する
 
 利用可能なツール：
-- extract_user_info: ユーザー情報を抽出・保存（最初に必ず呼ぶ／戻り値=最終応答）
 - check_session_completion: 情報収集完了を判定
 - transfer_to_agent: 他のエージェントに転送（完了後にfamily_session_agentへ）
 
@@ -316,13 +313,12 @@ OK例: 関連する情報をまとめて聞く
 """
 
     def _get_agent_tools(self) -> List[Any]:
-        """エージェントのツールを取得"""
+        """エージェントのツールを取得（extract_user_infoを削除）"""
         # ADKでは関数を直接toolsリストに追加する方法が推奨されている
         # 関数名、docstring、パラメータが自動的に解析されてツールスキーマが生成される
         # transfer_to_agentはADKが自動提供するため手動追加不要
         return [
-            self.extract_user_info,
-            self.check_session_completion
+            self.check_session_completion  # extract_user_infoを削除
         ]
 
     def _wrap_response(self, message: Optional[str]) -> Dict[str, str]:
@@ -379,7 +375,7 @@ OK例: 関連する情報をまとめて聞く
 
         except Exception as e:
             print(f"ADKエージェント処理エラー: {e}")
-            return self._wrap_response("もう少し詳しく教えていただけますか？")
+            return self._wrap_response("お話を伺いました。続きもぜひ教えてください。")
 
 
     async def _extract_information(self, user_message: str) -> Dict[str, Any]:
@@ -508,11 +504,57 @@ JSONの外に余計なテキストを含めないでください。
             return {}
 
     async def _update_user_profile(self, extracted_info: Dict[str, Any]) -> None:
-        """ユーザープロファイルを更新"""
+        """ユーザープロファイルを更新（データ検証付き）"""
         extracted_info = extracted_info or {}
 
         for key, value in extracted_info.items():
             if hasattr(self.user_profile, key) and value is not None:
+                # データ型の検証と変換
+                if key == "user_personality_traits":
+                    if isinstance(value, str):
+                        print(f"[WARN] user_personality_traitsが文字列です: {value}")
+                        # 文字列の場合はスキップ（正しい形式で再抽出が必要）
+                        continue
+                    elif isinstance(value, dict):
+                        # 数値の検証
+                        for trait, score in value.items():
+                            if not isinstance(score, (int, float)) or not (0.0 <= score <= 1.0):
+                                print(f"[WARN] 無効な性格特性スコア: {trait}={score}")
+                                value[trait] = 0.5  # デフォルト値
+
+                elif key == "children_info":
+                    if isinstance(value, dict):
+                        print(f"[WARN] children_infoが辞書形式です: {value}")
+                        # 辞書の場合はスキップ（正しい形式で再抽出が必要）
+                        continue
+                    elif isinstance(value, list):
+                        # 配列の各要素を検証
+                        validated_children = []
+                        for child in value:
+                            if isinstance(child, dict) and "desired_gender" in child:
+                                validated_children.append(child)
+                            else:
+                                print(f"[WARN] 無効な子供情報: {child}")
+                        value = validated_children
+
+                elif key in ("ideal_partner", "current_partner"):
+                    if isinstance(value, str):
+                        print(f"[WARN] {key}が文字列です: {value}")
+                        # 文字列の場合はスキップ（正しい形式で再抽出が必要）
+                        continue
+                    elif isinstance(value, dict):
+                        # 辞書形式の場合は検証
+                        if "name" not in value:
+                            print(f"[WARN] {key}にnameがありません: {value}")
+                        if "personality_traits" not in value:
+                            print(f"[WARN] {key}にpersonality_traitsがありません: {value}")
+                        # personality_traitsの検証
+                        if "personality_traits" in value and isinstance(value["personality_traits"], dict):
+                            for trait, score in value["personality_traits"].items():
+                                if not isinstance(score, (int, float)) or not (0.0 <= score <= 1.0):
+                                    print(f"[WARN] 無効な{key}の性格特性スコア: {trait}={score}")
+                                    value["personality_traits"][trait] = 0.5  # デフォルト値
+
                 setattr(self.user_profile, key, value)
 
         if is_value_missing(self.user_profile.partner_face_description):
@@ -681,16 +723,41 @@ JSONの外に余計なテキストを含めないでください。
 
             required_fields_desc = """
 【必須項目】:
-- age: ユーザーの年齢
-- gender: 性別
-- relationship_status: 交際状況（married/partnered/single/other）
-- location: お住まいの地域
-- income_range: おおよその年収帯（例: 300万円程度）
-- user_personality_traits: ユーザー自身の性格特性（ビッグファイブ: openness, conscientiousness, extraversion, agreeableness, neuroticism）
+- age: ユーザーの年齢（数値）
+- gender: 性別（"男性", "女性", "その他"）
+- relationship_status: 交際状況（"married", "partnered", "single", "other"）
+- location: お住まいの地域（文字列）
+- income_range: おおよその年収帯（例: "300万円程度"）
+- user_personality_traits: ユーザー自身の性格特性（**必ず辞書形式**）
+  {
+    "openness": 0.0-1.0,
+    "conscientiousness": 0.0-1.0,
+    "extraversion": 0.0-1.0,
+    "agreeableness": 0.0-1.0,
+    "neuroticism": 0.0-1.0
+  }
 - partner_face_description: パートナーの外見・顔の特徴（画像生成に使用）
-- children_info: 子供の希望（人数・性別）
-- ideal_partner (独身/その他の場合): 理想のパートナー情報
-- current_partner (既婚/交際中の場合): 現在のパートナー情報
+- children_info: 子供の希望（**必ず配列形式**）
+  [
+    {"desired_gender": "男", "name": "たかし"},
+    {"desired_gender": "女", "name": "えり"}
+  ]
+- ideal_partner (独身/その他の場合): 理想のパートナー情報（**必ず辞書形式**）
+  {
+    "name": "名前",
+    "personality_traits": {
+      "openness": 0.0-1.0,
+      "conscientiousness": 0.0-1.0,
+      "extraversion": 0.0-1.0,
+      "agreeableness": 0.0-1.0,
+      "neuroticism": 0.0-1.0
+    },
+    "temperament": "性格の総合的な説明",
+    "hobbies": ["趣味1", "趣味2"],
+    "speaking_style": "話し方の特徴"
+  }
+- current_partner (既婚/交際中の場合): 現在のパートナー情報（**必ず辞書形式**）
+  # 同様の構造
 """
 
             prompt = f"""
@@ -735,16 +802,70 @@ JSONの外に余計なテキストを含めないでください。
 }}
 ```
 
+## 重要なデータ形式ルール
+- user_personality_traits: **必ず辞書形式**で、0.0-1.0の数値
+- children_info: **必ず配列形式**で、各要素は{{"desired_gender": "男/女", "name": "名前"}}の辞書
+- 性格特性の推定:
+  - 「明るい」「社交的」→ extraversion: 0.7-0.8
+  - 「几帳面」「計画的」→ conscientiousness: 0.7-0.8
+  - 「優しい」「思いやり」→ agreeableness: 0.7-0.8
+  - 「好奇心旺盛」「創造的」→ openness: 0.7-0.8
+  - 「落ち着いている」「楽観的」→ neuroticism: 0.2-0.3
+  - 「心配性」「慎重」→ neuroticism: 0.7-0.8
+  - キーワードがない場合 → 0.5（中立）
+
 ## 例
-入力: "優しい性格で、丸顔の人がいいです"
+入力: "ネガティブだが頑張り屋"
+出力:
+```json
+{{
+  "missing_info": {{
+    "user_personality_traits": {{
+      "openness": 0.5,
+      "conscientiousness": 0.8,
+      "extraversion": 0.3,
+      "agreeableness": 0.6,
+      "neuroticism": 0.7
+    }}
+  }},
+  "is_complete": false,
+  "completion_message": null
+}}
+```
+
+入力: "男の子「たかし」と女の子「えり」の2人が欲しい"
+出力:
+```json
+{{
+  "missing_info": {{
+    "children_info": [
+      {{"desired_gender": "男", "name": "たかし"}},
+      {{"desired_gender": "女", "name": "えり"}}
+    ]
+  }},
+  "is_complete": false,
+  "completion_message": null
+}}
+```
+
+入力: "理想の妻は「あゆみ」で、誠実で天真爛漫な性格"
 出力:
 ```json
 {{
   "missing_info": {{
     "ideal_partner": {{
-      "temperament": "優しい"
-    }},
-    "partner_face_description": "丸顔"
+      "name": "あゆみ",
+      "personality_traits": {{
+        "openness": 0.6,
+        "conscientiousness": 0.8,
+        "extraversion": 0.7,
+        "agreeableness": 0.9,
+        "neuroticism": 0.2
+      }},
+      "temperament": "誠実で天真爛漫",
+      "hobbies": [],
+      "speaking_style": "温かく親しみやすい"
+    }}
   }},
   "is_complete": false,
   "completion_message": null
@@ -884,8 +1005,165 @@ JSONの外に余計なテキストを含めないでください。
             "timestamp": datetime.now().isoformat()
         })
 
+    async def _generate_hera_response_with_extraction(self, user_message: str) -> str:
+        """返答生成と情報抽出を統合したメソッド（heraの人格を活かした版）"""
+        try:
+            from google.generativeai import GenerativeModel
+            model = GenerativeModel('gemini-2.5-pro')
+
+            # 現在のプロファイル情報を取得
+            current_profile = await self._format_collected_info()
+            missing_fields = compute_missing_fields(self.user_profile)
+
+            # 不足項目の説明を生成
+            missing_fields_text = "\n".join([
+                f"- {self._describe_missing_detail(field)} ({field})"
+                for field in missing_fields
+            ]) if missing_fields else "- （不足はありません）"
+
+            # 会話の流れを考慮したコンテキスト
+            recent_history = self.conversation_history[-3:] if len(self.conversation_history) > 3 else self.conversation_history
+
+            prompt = f"""
+あなたは{self.persona.name}（{self.persona.role}）です。
+
+基本情報：
+- 名前: {self.persona.name}
+- 役割: {self.persona.role}
+- 領域: {self.persona.domain}
+- 象徴: {', '.join(self.persona.symbols)}
+- 性格: {self.persona.personality}
+
+現在のユーザープロファイル：
+{current_profile}
+
+会話履歴：
+{recent_history}
+
+ユーザーの最新メッセージ：
+{user_message}
+
+不足している必須情報：
+{missing_fields_text}
+
+あなたの役割：
+1. 温かみのある、親しみやすい口調で応答する
+2. **3-4ターン以内**で必要最小限の情報を収集する
+3. 不足している必須情報を優先的にまとめて尋ねる
+4. 愛情深く、家族思いの神として振る舞う
+
+【抽出すべき情報の詳細】
+
+【必須項目】
+- age: 年齢（数値）
+- gender: 性別（"男性", "女性", "その他"）
+- relationship_status: 交際状況（"married", "partnered", "single", "other"）
+- location: 居住地（文字列）
+- income_range: 年収の目安（例: "300万円", "500〜600万円"）
+- partner_face_description: パートナー（または理想のパートナー）の顔・外見的特徴（画像生成に使用）
+- user_personality_traits: ユーザー自身の性格特性
+  {{
+    "openness": 0.0-1.0,
+    "conscientiousness": 0.0-1.0,
+    "extraversion": 0.0-1.0,
+    "agreeableness": 0.0-1.0,
+    "neuroticism": 0.0-1.0
+  }}
+
+【パートナー関連】
+- current_partner: 現在のパートナー情報（既婚/交際中の場合）
+  {{
+    "name": "名前",
+    "age": 年齢,
+    "personality_traits": {{
+      "openness": 0.0-1.0,        # 好奇心旺盛さ（新しいこと好き）
+      "conscientiousness": 0.0-1.0, # 几帳面さ（計画的）
+      "extraversion": 0.0-1.0,     # 社交性（明るい・活発）
+      "agreeableness": 0.0-1.0,    # 優しさ（思いやり）
+      "neuroticism": 0.0-1.0       # 心配性さ（慎重）
+    }},
+    "temperament": "性格の総合的な説明",
+    "hobbies": ["趣味1", "趣味2"],
+    "speaking_style": "話し方の特徴"
+  }}
+
+- ideal_partner: 理想のパートナー像（独身の場合）
+  # 同様の構造
+
+【子供関連】
+- children_info: 子供の希望情報（**必ず配列形式**）
+  {{
+    "desired_gender": "男/女"
+  }}
+
+【性格特性の推定ルール】
+会話から以下のキーワードで0.0-1.0の値を推定:
+- 「明るい」「社交的」「外向的」「活発」 → extraversion: 0.7-0.8
+- 「几帳面」「計画的」「責任感」「しっかり」 → conscientiousness: 0.7-0.8
+- 「優しい」「思いやり」「協力的」 → agreeableness: 0.7-0.8
+- 「好奇心旺盛」「創造的」「新しいこと好き」 → openness: 0.7-0.8
+- 「落ち着いている」「楽観的」 → neuroticism: 0.2-0.3
+- 「心配性」「慎重」「不安」 → neuroticism: 0.7-0.8
+- 「内向的」「静か」 → extraversion: 0.2-0.3
+- キーワードがない場合 → 0.5（中立）
+
+【応答の指針】
+- 温かみのある、親しみやすい口調で応答する
+- 1つの質問で複数項目をまとめて聞く
+- パートナーの外見・顔の特徴は必ず聞く（画像生成に使用）
+- 子供の名前と性別は必ず聞く
+- 不要な情報（趣味、仕事、ライフスタイル詳細など）は基本的に聞かない
+- 必要な情報が揃ったら「ありがとうございます。十分な情報が揃いました」と明確に伝える
+- 常に愛情深く、家族思いの神として振る舞う
+
+【出力形式】
+以下のJSON形式のみで回答してください：
+
+```json
+{{
+  "extracted_info": {{
+    "field_name": "抽出された値",
+    ...
+  }},
+  "response": "ユーザーへの温かい応答メッセージ（heraの人格を活かした自然な文章）"
+}}
+```
+
+重要:
+- 抽出できた情報のみをJSON形式で返す
+- 性格特性は必ず0.0-1.0の数値の辞書形式で推定する
+- children_infoは必ず配列（[]）形式で返す
+- user_personality_traits は必ず辞書（{{}}）形式で返す
+- responseは固定文言ではなく、heraの人格と状況に応じた自然で温かい文章で返す
+"""
+
+            response = model.generate_content(prompt)
+            response_text = response.text if hasattr(response, 'text') else str(response)
+
+            # JSONを抽出
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group(0))
+
+                # 抽出された情報をプロファイルに反映
+                extracted_info = result.get("extracted_info", {})
+                if extracted_info:
+                    await self._update_user_profile(extracted_info)
+                    self.last_extracted_fields = extracted_info
+
+                # heraの人格を活かした動的応答を返す
+                return result.get("response", "お話を伺いました。続きもぜひ教えてください。")
+
+            # JSON解析に失敗した場合のフォールバック
+            return "お話を伺いました。続きもぜひ教えてください。"
+
+        except Exception as e:
+            print(f"[ERROR] 統合応答生成エラー: {e}")
+            # エラー時も固定文言ではなく、heraらしい応答
+            return "申し訳ございません。もう一度お話ししていただけますか？"
+
     async def _generate_hera_response(self, user_message: str) -> str:
-        """ヘーラーエージェントの応答を生成"""
+        """ヘーラーエージェントの応答を生成（非推奨：_generate_hera_response_with_extractionを使用）"""
         try:
             from google.generativeai import GenerativeModel
             model = GenerativeModel('gemini-2.5-pro')
@@ -970,7 +1248,7 @@ JSONの外に余計なテキストを含めないでください。
 
         except Exception as e:
             print(f"[ERROR] ヘーラー応答生成エラー: {e}")
-            return "もう少し詳しく教えていただけますか？"
+            return "お話を伺いました。続きもぜひ教えてください。"
 
     async def _generate_completion_message(self) -> str:
         """情報収集完了時のメッセージを生成
@@ -1067,8 +1345,12 @@ JSONの外に余計なテキストを含めないでください。
             print(f"[WARN] セッションディレクトリが存在しません: {session_dir}")
             return
 
-        with open(f"{session_dir}/conversation_history.json", "w", encoding="utf-8") as f:
-            json.dump(self.conversation_history, f, ensure_ascii=False, indent=2)
+        try:
+            with open(f"{session_dir}/conversation_history.json", "w", encoding="utf-8") as f:
+                json.dump(self.conversation_history, f, ensure_ascii=False, indent=2)
+            print(f"[DEBUG] 会話履歴を保存しました: {len(self.conversation_history)}件")
+        except Exception as e:
+            print(f"[ERROR] 会話履歴保存エラー: {e}")
 
 
     def get_user_profile(self) -> UserProfile:
@@ -1102,91 +1384,19 @@ JSONの外に余計なテキストを含めないでください。
 
     # ADKの標準フローに対応するメソッドを追加
     async def run(self, message: str, session_id: str = None, **kwargs) -> str:
-        """ADKの標準runメソッド"""
+        """ADKの標準runメソッド（統合処理版）"""
         print("[INFO] ADK runメソッドが呼び出されました")
         print(f"[DEBUG] メッセージ: {message}")
         print(f"[DEBUG] セッションID: {session_id}")
 
-        # ADK既存セッションIDのみを使用
-        resolved_session_id = None
-        if session_id and session_id.strip():
-            resolved_session_id = session_id.strip()
-        else:
-            try:
-                import httpx
-                with httpx.Client(timeout=5) as client:
-                    r = client.get(f"{self.adk_base_url}/apps/agents/users/user/sessions")
-                    if r.status_code == 200 and isinstance(r.json(), list) and r.json():
-                        data = r.json()
-                        # lastUpdateTimeがあれば最新順に
-                        try:
-                            data_sorted = sorted(
-                                data,
-                                key=lambda x: x.get("lastUpdateTime", 0),
-                                reverse=True
-                            )
-                        except Exception:
-                            data_sorted = data
-                        first = data_sorted[0]
-                        if isinstance(first, dict):
-                            resolved_session_id = first.get("session_id") or first.get("id")
-            except Exception as e:
-                print(f"[WARN] ADKセッションID取得エラー(run): {e}")
-
-        if not resolved_session_id:
-            print("[ERROR] ADKセッションIDが取得できません")
-            return "セッションIDが取得できませんでした"
-
-        # UIのセッションIDに常時同期（異なる場合は更新）
-        if self.current_session != resolved_session_id:
-            self.current_session = resolved_session_id
-            # ディレクトリ未作成時のみ開始処理
-            session_dir = os.path.join(get_sessions_dir(), self.current_session)
-            if not os.path.exists(session_dir):
-                await self.start_session(self.current_session)
-
-        # ツールを直接呼び出して応答を生成（標準フロー無効化のため）
-        payload_raw = await self.extract_user_info(message)
-
-        if isinstance(payload_raw, dict):
-            payload = payload_raw
-            payload_json = json.dumps(payload, ensure_ascii=False)
-        else:
-            try:
-                payload = json.loads(payload_raw)
-                payload_json = payload_raw
-            except Exception:
-                payload = self._wrap_response(None)
-                payload_json = json.dumps(payload, ensure_ascii=False)
-
-        print(f"📤 レスポンス: {payload}")
-
-        return payload_json
-
-    # ADKツール用のメソッド
-    async def extract_user_info(self, user_message: str) -> str:
-        """ユーザー情報を抽出・保存するツール
-
-        ユーザーからのメッセージから必要な情報を抽出し、プロファイルに保存します
-        最初に必ず呼び出されるツールで、戻り値が最終応答として使用されます
-
-        Args:
-            user_message: ユーザーからのメッセージ
-
-        Returns:
-            str: ユーザーへの応答メッセージ
-        """
-        print(f"[INFO] 情報抽出ツールが呼び出されました: {user_message}")
-
         try:
-            # runで設定されていない場合はフォールバックで最新セッションIDを取得
-            if not self.current_session:
-                latest_sid = await self._get_latest_adk_session_id(retries=3, timeout_sec=10.0)
-                if not latest_sid:
-                    print("[ERROR] ADKセッションIDが取得できません（ツール側フォールバック）")
-                    return "セッションIDが取得できませんでした"
-                self.current_session = latest_sid
-                print(f"[INFO] Heraエージェントのセッション ID: {self.current_session}")
+            # セッション管理
+            if session_id:
+                self.current_session = session_id
+            elif not self.current_session:
+                self.current_session = await self._get_latest_adk_session_id()
+                if not self.current_session:
+                    return json.dumps(self._wrap_response("セッションを開始できませんでした。もう一度お試しください。"), ensure_ascii=False)
 
             # セッション開始（ディレクトリ未作成時）
             session_dir = os.path.join(get_sessions_dir(), self.current_session)
@@ -1194,33 +1404,31 @@ JSONの外に余計なテキストを含めないでください。
                 await self.start_session(self.current_session)
 
             # 会話履歴にユーザーメッセージを追加
-            await self._add_to_history("user", user_message)
-            # 会話履歴のみ即時保存
+            await self._add_to_history("user", message)
             await self._save_conversation_history()
 
-            # ユーザー情報を抽出
-            await self._extract_information(user_message)
-
-            # エージェントの応答を生成
-            if self._session_state == self.SessionState.COMPLETED:
-                payload = self._wrap_response("")
-            else:
-                response_text = await self._generate_hera_response(user_message)
-                payload = self._wrap_response(response_text)
+            # 統合処理（情報抽出 + 返答生成）
+            response_text = await self._generate_hera_response_with_extraction(message)
 
             # エージェントの応答を履歴に追加
-            await self._add_to_history("hera", payload["message"])
-            # 会話履歴のみ即時保存
+            await self._add_to_history("hera", response_text)
             await self._save_conversation_history()
 
-            # 毎ターンの保存は行わず、メモリにのみ保持
-            return json.dumps(payload, ensure_ascii=False)
+            # レスポンスを返す
+            payload = self._wrap_response(response_text)
+            payload_json = json.dumps(payload, ensure_ascii=False)
+
+            print(f"📤 レスポンス: {payload}")
+
+            return payload_json
+
         except Exception as e:
-            print(f"[ERROR] 情報抽出エラー: {e}")
-            return json.dumps(
-                self._wrap_response(f"申し訳ございません。エラーが発生しました: {str(e)}"),
-                ensure_ascii=False,
-            )
+            print(f"[ERROR] runメソッドエラー: {e}")
+            # エラー時もheraらしい応答
+            error_response = "申し訳ございません。少し時間をいただけますか？"
+            return json.dumps(self._wrap_response(error_response), ensure_ascii=False)
+
+    # ADKツール用のメソッド（extract_user_infoは削除済み）
 
     async def _extract_missing_information(self, user_message: str, missing_fields: List[str]) -> Dict[str, Any]:
         """不足しているフィールドのみ抽出
@@ -1307,15 +1515,21 @@ JSONの外に余計なテキストを含めないでください。
                 await self._update_user_profile(result["missing_info"])
                 self.last_extracted_fields = result["missing_info"]
 
+            # 更新後の不足フィールドを再チェック
             remaining_missing = compute_missing_fields(self.user_profile)
 
-            if remaining_missing:
-                result.setdefault("missing_info", {})
-                for field in remaining_missing:
-                    result["missing_info"].setdefault(field, None)
+            # LLMの判定と実際の不足フィールドの整合性を取る
+            llm_complete = result.get("is_complete", False)
+            actually_complete = not remaining_missing
 
-            is_complete = result.get("is_complete", False) and not remaining_missing
+            # どちらかが完了と判定されていれば完了とする
+            is_complete = llm_complete or actually_complete
             completion_message = result.get("completion_message")
+
+            print(f"[DEBUG] 完了判定詳細:")
+            print(f"  LLM判定: {llm_complete}")
+            print(f"  実際の不足: {remaining_missing}")
+            print(f"  最終判定: {is_complete}")
 
             if is_complete:
                 print("[INFO] session completion confirmed")
