@@ -75,7 +75,13 @@ class FamilySessionAgent(Agent):
         if self._toolset is not None:
             return
 
-        session_id = callback_context.session.id
+        session_obj = getattr(callback_context, "session", None)
+        session_id = getattr(session_obj, "id", None)
+        if session_id is None:
+            invocation = getattr(callback_context, "_invocation_context", None)
+            session_id = getattr(getattr(invocation, "session", None), "id", None)
+        if session_id is None:
+            raise RuntimeError("FamilySessionAgent: session id is unavailable in callback context")
         logger.info(f"🆔 Familyエージェントのセッション ID: {session_id}")
         logger.info(f"🔍 親エージェント: {self.parent_agent.name if self.parent_agent else 'なし'}")
 
