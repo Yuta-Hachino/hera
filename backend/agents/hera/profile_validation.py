@@ -91,6 +91,9 @@ def _is_partner_complete(partner: Any) -> bool:
         return False
     if not any(not is_value_missing(data.get(name)) for name in PARTNER_APPEARANCE_KEYS):
         return False
+    # パートナーの名前を必須にする
+    if is_value_missing(data.get("name")):
+        return False
     return True
 
 
@@ -100,7 +103,9 @@ def _is_children_complete(children: Any) -> bool:
         return False
     for item in items:
         if isinstance(item, dict):
-            if not is_value_missing(item.get("desired_gender")):
+            # 子供の性別と名前の両方が必須
+            if (not is_value_missing(item.get("desired_gender")) and
+                not is_value_missing(item.get("name"))):
                 return True
         elif not is_value_missing(item):
             return True
@@ -211,4 +216,3 @@ __all__ = [
     "build_information_progress",
     "prune_empty_fields",
 ]
-
