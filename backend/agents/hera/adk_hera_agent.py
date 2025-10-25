@@ -76,6 +76,11 @@ class UserProfile(BaseModel):
     # 子供関連
     children_info: Optional[List[Dict[str, Any]]] = Field(None, description="子ども情報")
 
+    # 画像関連フィールド
+    partner_image_path: Optional[str] = Field(None, description="パートナーの画像パス")
+    user_image_path: Optional[str] = Field(None, description="ユーザー画像パス")
+    children_images: Optional[List[Dict[str, str]]] = Field(None, description="子供の画像リスト")
+
     created_at: Optional[str] = Field(None, description="作成日時")
 
 
@@ -313,7 +318,24 @@ OK例: 関連する情報をまとめて聞く
 """
 
     def _get_agent_tools(self) -> List[Any]:
-        """エージェントのツールを取得（extract_user_infoを削除）"""
+        """エージェントのツールを取得（ディレクトリ作成付き）"""
+        # セッションディレクトリの作成（確実に呼ばれる場所）
+        try:
+            # 最新のセッションIDを取得
+            sessions_dir = get_sessions_dir()
+            if os.path.exists(sessions_dir):
+                existing_sessions = [d for d in os.listdir(sessions_dir) if os.path.isdir(os.path.join(sessions_dir, d))]
+                if existing_sessions:
+                    latest_session = max(existing_sessions)
+                    session_dir = os.path.join(sessions_dir, latest_session)
+                    if not os.path.exists(session_dir):
+                        print(f"[INFO] _get_agent_toolsでセッションディレクトリ作成: {latest_session}")
+                        os.makedirs(session_dir, exist_ok=True)
+                        os.makedirs(os.path.join(session_dir, 'photos'), exist_ok=True)
+                        self.current_session = latest_session
+        except Exception as e:
+            print(f"[WARN] _get_agent_toolsでのディレクトリ作成エラー: {e}")
+
         # ADKでは関数を直接toolsリストに追加する方法が推奨されている
         # 関数名、docstring、パラメータが自動的に解析されてツールスキーマが生成される
         # transfer_to_agentはADKが自動提供するため手動追加不要
@@ -336,7 +358,9 @@ OK例: 関連する情報をまとめて聞く
 
 
     async def start_session(self, session_id: str) -> str:
-        """セッション開始"""
+        """セッション開始（デバッグ強化版）"""
+        print(f"[DEBUG] start_session開始: {session_id}")
+
         self.current_session = session_id
         self.user_profile = UserProfile()
         self.conversation_history = []
@@ -346,11 +370,18 @@ OK例: 関連する情報をまとめて聞く
         session_dir = os.path.join(get_sessions_dir(), session_id)
         photos_dir = os.path.join(session_dir, "photos")
 
+        print(f"[DEBUG] セッションディレクトリ: {session_dir}")
+        print(f"[DEBUG] 画像ディレクトリ: {photos_dir}")
+
         # ディレクトリが存在しない場合のみ作成
         if not os.path.exists(session_dir):
+            print(f"[DEBUG] ディレクトリ作成中...")
             os.makedirs(session_dir)
             os.makedirs(photos_dir)
             print(f"[INFO] セッションディレクトリを作成しました: {session_dir}")
+            print(f"[INFO] 画像ディレクトリを作成しました: {photos_dir}")
+        else:
+            print(f"[DEBUG] ディレクトリは既に存在します")
 
         # 初手の通常挨拶は表示順の混乱を避けるため無効化
         return ""
@@ -1008,6 +1039,16 @@ JSONの外に余計なテキストを含めないでください。
     async def _generate_hera_response_with_extraction(self, user_message: str) -> str:
         """返答生成と情報抽出を統合したメソッド（heraの人格を活かした版）"""
         try:
+            # セッションIDの設定とディレクトリ作成
+            if not self.current_session:
+                self.current_session = await self._get_latest_adk_session_id()
+
+            if self.current_session:
+                session_dir = os.path.join(get_sessions_dir(), self.current_session)
+                if not os.path.exists(session_dir):
+                    print(f"[INFO] 返答生成時にセッションディレクトリ作成: {self.current_session}")
+                    await self.start_session(self.current_session)
+
             from google.generativeai import GenerativeModel
             model = GenerativeModel('gemini-2.5-pro')
 
@@ -1384,24 +1425,19 @@ JSONの外に余計なテキストを含めないでください。
 
     # ADKの標準フローに対応するメソッドを追加
     async def run(self, message: str, session_id: str = None, **kwargs) -> str:
-        """ADKの標準runメソッド（統合処理版）"""
+        """ADKの標準runメソッド"""
         print("[INFO] ADK runメソッドが呼び出されました")
         print(f"[DEBUG] メッセージ: {message}")
         print(f"[DEBUG] セッションID: {session_id}")
 
         try:
-            # セッション管理
+            # セッションIDの設定
             if session_id:
                 self.current_session = session_id
             elif not self.current_session:
                 self.current_session = await self._get_latest_adk_session_id()
                 if not self.current_session:
-                    return json.dumps(self._wrap_response("セッションを開始できませんでした。もう一度お試しください。"), ensure_ascii=False)
-
-            # セッション開始（ディレクトリ未作成時）
-            session_dir = os.path.join(get_sessions_dir(), self.current_session)
-            if not os.path.exists(session_dir):
-                await self.start_session(self.current_session)
+                    return json.dumps(self._wrap_response("セッションを開始できませんでした。"), ensure_ascii=False)
 
             # 会話履歴にユーザーメッセージを追加
             await self._add_to_history("user", message)
@@ -1428,48 +1464,6 @@ JSONの外に余計なテキストを含めないでください。
             error_response = "申し訳ございません。少し時間をいただけますか？"
             return json.dumps(self._wrap_response(error_response), ensure_ascii=False)
 
-    # ADKツール用のメソッド（extract_user_infoは削除済み）
-
-    async def _extract_missing_information(self, user_message: str, missing_fields: List[str]) -> Dict[str, Any]:
-        """不足しているフィールドのみ抽出
-
-        **非推奨**: _unified_completion_check() を使用してください
-        """
-        if not missing_fields:
-            return {}
-
-        print(f"[INFO] 不足項目の抽出を実行: {missing_fields}")
-
-        try:
-            from google.generativeai import GenerativeModel
-            model = GenerativeModel('gemini-2.5-pro')
-
-            prompt = f"""
-以下の不足しているフィールドのみをJSON形式で抽出してください。存在しない場合はフィールドを含めないでください。
-
-不足フィールド: {missing_fields}
-ユーザーメッセージ: {user_message}
-現在のプロファイル: {self.user_profile.dict()}
-"""
-
-            response = model.generate_content(prompt)
-            response_text = response.text if hasattr(response, 'text') else str(response)
-            print(f"[DEBUG] 不足フィールド抽出レスポンス: {response_text}")
-
-            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-            if not json_match:
-                print("[WARN] 不足項目抽出: JSON形式が見つかりません")
-                return {}
-
-            info = json.loads(json_match.group(0))
-            if info:
-                await self._update_user_profile(info)
-                self.last_extracted_fields = info
-            return info
-
-        except Exception as e:
-            print(f"[ERROR] 不足項目抽出エラー: {e}")
-            return {}
 
     async def check_session_completion(self, user_message: str) -> str:
         """セッション完了判定ツール
@@ -1534,6 +1528,9 @@ JSONの外に余計なテキストを含めないでください。
             if is_complete:
                 print("[INFO] session completion confirmed")
                 if self._session_state != self.SessionState.COMPLETED:
+                    # 画像生成を開始
+                    await self._generate_family_images()
+
                     # 完了メッセージを履歴に記録
                     if completion_message:
                         await self._add_to_history("hera", completion_message)
@@ -1559,6 +1556,54 @@ JSONの外に余計なテキストを含めないでください。
             import traceback
             traceback.print_exc()
             return f"完了判定中にエラーが発生しました: {str(e)}"
+
+    async def _generate_family_images(self):
+        """家族の画像を生成（修正版）"""
+        try:
+            from .image_generator import FamilyImageGenerator
+
+            image_generator = FamilyImageGenerator()
+            image_generator.current_session = self.current_session
+
+            print("[INFO] 家族画像生成開始")
+
+            # 1. 奥さんの画像生成
+            partner_image_path = None
+            if self.user_profile.ideal_partner:
+                print("[INFO] パートナー画像生成中...")
+                partner_image_path = await image_generator.generate_partner_image(
+                    self.user_profile.ideal_partner
+                )
+                self.user_profile.partner_image_path = partner_image_path
+                print(f"[INFO] パートナー画像生成完了: {partner_image_path}")
+
+            # 2. ユーザー画像は既存のものを取得
+            user_image_path = await image_generator.get_user_image_path(self.current_session)
+            if user_image_path:
+                self.user_profile.user_image_path = user_image_path
+                print(f"[INFO] ユーザー画像取得完了: {user_image_path}")
+            else:
+                print("[WARN] ユーザー画像が見つかりません")
+                return
+
+            # 3. 子供の画像生成（両親の画像をインプットに使用）
+            if self.user_profile.children_info and partner_image_path and user_image_path:
+                print("[INFO] 子供画像生成中...")
+                children_images = await image_generator.generate_children_images(
+                    self.user_profile.children_info,
+                    partner_image_path,
+                    user_image_path
+                )
+                self.user_profile.children_images = children_images
+                print(f"[INFO] 子供画像生成完了: {len(children_images)}名")
+
+            print("[INFO] 家族画像生成完了")
+
+        except Exception as e:
+            print(f"[ERROR] 画像生成エラー: {e}")
+            import traceback
+            traceback.print_exc()
+            # エラーでもセッションは完了として扱う
 
 
 # ADK用のエクスポート関数
