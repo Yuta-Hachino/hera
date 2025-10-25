@@ -160,6 +160,7 @@ export default function HeraAvatar({ text, config }: HeraAvatarProps) {
           enableBlinking={config.enableBlinking}
           blinkInterval={config.blinkInterval}
           blinkDuration={config.blinkDuration}
+          backgroundAlpha={0}
           enableLipSync={config.enableLipSync}
           lipSyncSensitivity={config.lipSyncSensitivity}
           enableBreathing={config.enableBreathing}
