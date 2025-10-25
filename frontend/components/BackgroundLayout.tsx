@@ -3,6 +3,7 @@
 import { ReactNode, useState } from 'react';
 import HeraAvatar from './HeraAvatar';
 import Live2DSettings from './Live2DSettings';
+import HorizontalResizableLayout from './HorizontalResizableLayout';
 import { Live2DConfig } from './Live2DSettings';
 
 type BackgroundLayoutProps = {
@@ -38,29 +39,31 @@ export default function BackgroundLayout({
 
   return (
     <>
-      {/* 画面全体の背景としてLive2Dを配置 */}
-      <div className="fixed inset-0 w-full h-full z-0">
-        <div
-          className="w-full h-full flex items-center justify-center"
-          style={{
-            backgroundColor: config.backgroundImage ? 'transparent' : (config.backgroundColor || '#f0f0f0'),
-            backgroundImage: config.backgroundImage ? `url(${config.backgroundImage})` : 'none',
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            backgroundRepeat: 'no-repeat',
-            ...(config.showGradientBackground && !config.backgroundImage && {
-              background: 'linear-gradient(to bottom, rgb(243 232 255), rgb(252 231 243))',
-            }),
-          }}
-        >
-          <HeraAvatar text={heraText} config={config} />
-        </div>
-      </div>
-
-      {/* チャットコンテンツを前面に表示 */}
-      <div className="relative z-10 w-full h-screen flex flex-col">
-        {children}
-      </div>
+      <HorizontalResizableLayout
+        leftContent={
+          <div
+            className="w-full h-full flex items-center justify-center"
+            style={{
+              backgroundColor: config.backgroundImage ? 'transparent' : (config.backgroundColor || '#f0f0f0'),
+              backgroundImage: config.backgroundImage ? `url(${config.backgroundImage})` : 'none',
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              backgroundRepeat: 'no-repeat',
+              ...(config.showGradientBackground && !config.backgroundImage && {
+                background: 'linear-gradient(to bottom, rgb(243 232 255), rgb(252 231 243))',
+              }),
+            }}
+          >
+            <HeraAvatar text={heraText} config={config} />
+          </div>
+        }
+        rightContent={
+          <div className="w-full h-full flex flex-col bg-white">
+            {children}
+          </div>
+        }
+        defaultLeftWidth={50}
+      />
 
       <Live2DSettings config={config} onChange={setConfig} />
     </>
