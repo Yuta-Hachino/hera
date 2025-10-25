@@ -8,10 +8,18 @@ export type Live2DConfig = {
   scale: number;
   enableBlinking: boolean;
   blinkInterval: [number, number];
+  blinkDuration: number;
   enableLipSync: boolean;
   lipSyncSensitivity: number;
+  enableBreathing: boolean;
+  breathingSpeed: number;
+  breathingIntensity: number;
+  enableMouseTracking: boolean;
+  trackingSmoothing: number;
+  trackingRange: number;
   ttsVolume: number;
   ttsVoice: string;
+  showGradientBackground: boolean;
 };
 
 type Live2DSettingsProps = {
@@ -163,41 +171,62 @@ export default function Live2DSettings({ config, onChange }: Live2DSettingsProps
 
                 {/* まばたき間隔 */}
                 {config.enableBlinking && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      まばたき間隔: {config.blinkInterval[0]}ms - {config.blinkInterval[1]}ms
-                    </label>
-                    <div className="space-y-2">
-                      <input
-                        type="range"
-                        min="1000"
-                        max="10000"
-                        step="500"
-                        value={config.blinkInterval[0]}
-                        onChange={(e) =>
-                          handleChange('blinkInterval', [
-                            parseFloat(e.target.value),
-                            config.blinkInterval[1],
-                          ])
-                        }
-                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-500"
-                      />
-                      <input
-                        type="range"
-                        min="1000"
-                        max="10000"
-                        step="500"
-                        value={config.blinkInterval[1]}
-                        onChange={(e) =>
-                          handleChange('blinkInterval', [
-                            config.blinkInterval[0],
-                            parseFloat(e.target.value),
-                          ])
-                        }
-                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-500"
-                      />
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        まばたき間隔: {config.blinkInterval[0]}ms - {config.blinkInterval[1]}ms
+                      </label>
+                      <div className="space-y-2">
+                        <input
+                          type="range"
+                          min="1000"
+                          max="10000"
+                          step="500"
+                          value={config.blinkInterval[0]}
+                          onChange={(e) =>
+                            handleChange('blinkInterval', [
+                              parseFloat(e.target.value),
+                              config.blinkInterval[1],
+                            ])
+                          }
+                          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-500"
+                        />
+                        <input
+                          type="range"
+                          min="1000"
+                          max="10000"
+                          step="500"
+                          value={config.blinkInterval[1]}
+                          onChange={(e) =>
+                            handleChange('blinkInterval', [
+                              config.blinkInterval[0],
+                              parseFloat(e.target.value),
+                            ])
+                          }
+                          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-500"
+                        />
+                      </div>
                     </div>
-                  </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        まばたきの長さ: {config.blinkDuration}ms
+                      </label>
+                      <input
+                        type="range"
+                        min="50"
+                        max="500"
+                        step="10"
+                        value={config.blinkDuration}
+                        onChange={(e) => handleChange('blinkDuration', parseFloat(e.target.value))}
+                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-500"
+                      />
+                      <div className="flex justify-between text-xs text-gray-500 mt-1">
+                        <span>短い</span>
+                        <span>長い</span>
+                      </div>
+                    </div>
+                  </>
                 )}
 
                 {/* リップシンク */}
@@ -243,6 +272,132 @@ export default function Live2DSettings({ config, onChange }: Live2DSettingsProps
                   </div>
                 )}
 
+                {/* 呼吸アニメーション */}
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-gray-700">
+                    呼吸アニメーション
+                  </label>
+                  <button
+                    onClick={() => handleChange('enableBreathing', !config.enableBreathing)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      config.enableBreathing ? 'bg-primary-500' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        config.enableBreathing ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* 呼吸速度 */}
+                {config.enableBreathing && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      呼吸速度: {config.breathingSpeed.toFixed(1)}x
+                    </label>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="2"
+                      step="0.1"
+                      value={config.breathingSpeed}
+                      onChange={(e) => handleChange('breathingSpeed', parseFloat(e.target.value))}
+                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-500"
+                    />
+                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                      <span>遅い</span>
+                      <span>速い</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* 呼吸強度 */}
+                {config.enableBreathing && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      呼吸強度: {config.breathingIntensity.toFixed(1)}
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.1"
+                      value={config.breathingIntensity}
+                      onChange={(e) => handleChange('breathingIntensity', parseFloat(e.target.value))}
+                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-500"
+                    />
+                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                      <span>弱い</span>
+                      <span>強い</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* マウストラッキング */}
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-gray-700">
+                    マウス追従
+                  </label>
+                  <button
+                    onClick={() => handleChange('enableMouseTracking', !config.enableMouseTracking)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      config.enableMouseTracking ? 'bg-primary-500' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        config.enableMouseTracking ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* 追従の滑らかさ */}
+                {config.enableMouseTracking && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      追従の滑らかさ: {config.trackingSmoothing.toFixed(2)}
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={config.trackingSmoothing}
+                      onChange={(e) => handleChange('trackingSmoothing', parseFloat(e.target.value))}
+                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-500"
+                    />
+                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                      <span>速い</span>
+                      <span>滑らか</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* 追従範囲 */}
+                {config.enableMouseTracking && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      追従範囲: {config.trackingRange}度
+                    </label>
+                    <input
+                      type="range"
+                      min="10"
+                      max="60"
+                      step="5"
+                      value={config.trackingRange}
+                      onChange={(e) => handleChange('trackingRange', parseFloat(e.target.value))}
+                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-500"
+                    />
+                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                      <span>狭い</span>
+                      <span>広い</span>
+                    </div>
+                  </div>
+                )}
+
                 {/* TTS音量 */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -281,19 +436,46 @@ export default function Live2DSettings({ config, onChange }: Live2DSettingsProps
                   </select>
                 </div>
 
+                {/* グラデーション背景 */}
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-gray-700">
+                    グラデーション背景
+                  </label>
+                  <button
+                    onClick={() => handleChange('showGradientBackground', !config.showGradientBackground)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      config.showGradientBackground ? 'bg-primary-500' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        config.showGradientBackground ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
                 {/* リセットボタン */}
                 <button
                   onClick={() => {
                     onChange({
                       positionY: -0.2,
                       positionX: 0,
-                      scale: 1.0,
+                      scale: 10.0,
                       enableBlinking: true,
                       blinkInterval: [3000, 5000],
+                      blinkDuration: 100,
                       enableLipSync: true,
                       lipSyncSensitivity: 1.5,
+                      enableBreathing: true,
+                      breathingSpeed: 1.0,
+                      breathingIntensity: 0.5,
+                      enableMouseTracking: false,
+                      trackingSmoothing: 0.1,
+                      trackingRange: 30,
                       ttsVolume: 1.0,
                       ttsVoice: 'ja-JP',
+                      showGradientBackground: false,
                     });
                   }}
                   className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition-colors"
