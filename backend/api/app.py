@@ -12,8 +12,14 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config import get_sessions_dir
 from werkzeug.utils import secure_filename
 from flask import send_from_directory
+from agents.hera.profile_validation import (
+    build_information_progress,
+    compute_missing_fields,
+    profile_is_complete,
+    prune_empty_fields,
+)
 
-load_dotenv()
+load_dotenv() 
 
 # Flaskアプリ
 app = Flask(__name__)
@@ -228,46 +234,58 @@ def send_message(session_id):
     # セッションデータの保存
     session_dir = session_path(session_id)
 
-    # ユーザーメッセージを履歴に追加
-    history = load_file(os.path.join(session_dir, 'conversation_history.json'), [])
-    history.append({
-        "speaker": "user",
-        "message": user_message,
-        "timestamp": str(uuid.uuid1().time)
-    })
+    profile_from_disk = load_file(os.path.join(session_dir, 'user_profile.json'), {}) or {}
+    profile_payload = agent_response.get('user_profile', {}) or {}
+    profile_data = profile_from_disk or profile_payload
+    profile_pruned = prune_empty_fields(profile_data)
 
-    # エージェントの応答を履歴に追加
-    history.append({
-        "speaker": "hera",
-        "message": agent_response.get('message', ''),
-        "timestamp": str(uuid.uuid1().time)
-    })
+    history = load_file(os.path.join(session_dir, 'conversation_history.json'), []) or []
+    if not history:
+        history = [
+            {
+                "speaker": "user",
+                "message": user_message,
+                "timestamp": str(uuid.uuid1().time)
+            },
+            {
+                "speaker": "hera",
+                "message": agent_response.get('message', ''),
+                "timestamp": str(uuid.uuid1().time)
+            }
+        ]
 
-    # プロファイルと履歴を保存
-    save_file(os.path.join(session_dir, 'user_profile.json'), agent_response.get('user_profile', {}))
+    save_file(os.path.join(session_dir, 'user_profile.json'), profile_pruned)
     save_file(os.path.join(session_dir, 'conversation_history.json'), history)
+
+    information_progress = build_information_progress(profile_pruned)
+    missing_fields = compute_missing_fields(profile_pruned)
 
     return jsonify({
         'reply': agent_response.get('message', ''),
         'conversation_history': history,
-        'user_profile': agent_response.get('user_profile', {}),
-        'information_progress': agent_response.get('information_progress', {})
+        'user_profile': profile_pruned,
+        'information_progress': information_progress,
+        'missing_fields': missing_fields,
+        'profile_complete': len(missing_fields) == 0
     })
 
 # 3. 進捗・履歴・プロフィール取得
-@app.route('/api/sessions/<session_id>/statfus', methods=['GET'])
+@app.route('/api/sessions/<session_id>/status', methods=['GET'])
 def get_status(session_id):
     session_dir = session_path(session_id)
-    profile = load_file(os.path.join(session_dir, 'user_profile.json'), {})
-    history = load_file(os.path.join(session_dir, 'conversation_history.json'), [])
+    profile = load_file(os.path.join(session_dir, 'user_profile.json'), {}) or {}
+    profile_pruned = prune_empty_fields(profile)
+    history = load_file(os.path.join(session_dir, 'conversation_history.json'), []) or []
 
-    # 進捗情報はファイルから取得（一時的）
-    progress = {}
+    progress = build_information_progress(profile_pruned)
+    missing_fields = compute_missing_fields(profile_pruned)
 
     return jsonify({
-        'user_profile': profile,
+        'user_profile': profile_pruned,
         'conversation_history': history,
-        'information_progress': progress
+        'information_progress': progress,
+        'missing_fields': missing_fields,
+        'profile_complete': len(missing_fields) == 0
     })
 
 # 4. セッション完了（必須情報充足/保存・family_agent転送準備）
@@ -286,12 +304,31 @@ def complete_session(session_id):
 
         # 最新データを保存
         session_dir = session_path(session_id)
-        profile = load_file(os.path.join(session_dir, 'user_profile.json'), {})
-        history = load_file(os.path.join(session_dir, 'conversation_history.json'), [])
+        profile = load_file(os.path.join(session_dir, 'user_profile.json'), {}) or {}
+        profile_pruned = prune_empty_fields(profile)
+        history = load_file(os.path.join(session_dir, 'conversation_history.json'), []) or []
+
+        save_file(os.path.join(session_dir, 'user_profile.json'), profile_pruned)
+
+        progress = build_information_progress(profile_pruned)
+        missing_fields = compute_missing_fields(profile_pruned)
+
+        if not profile_is_complete(profile_pruned):
+            return jsonify({
+                'error': '必須項目が未入力のため、完了できません。',
+                'user_profile': profile_pruned,
+                'conversation_history': history,
+                'information_progress': progress,
+                'missing_fields': missing_fields,
+                'information_complete': False
+            }), 400
 
         return jsonify({
             'message': '収集が完了しました。ありがとうございました。',
-            'user_profile': profile,
+            'user_profile': profile_pruned,
+            'conversation_history': history,
+            'information_progress': progress,
+            'missing_fields': [],
             'information_complete': True
         })
     except requests.exceptions.RequestException as e:
