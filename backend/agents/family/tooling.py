@@ -3,14 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import google.generativeai as genai
 from google.generativeai import GenerativeModel
 from google.adk.tools import FunctionTool
 
 from .models import Persona
-
 
 class FamilyTool:
     def __init__(self, persona: Persona, index: int, kind: str) -> None:
@@ -23,23 +22,62 @@ class FamilyTool:
         self.display_name = persona.role
 
         async def call_agent(*, tool_context, input_text: str) -> Dict[str, str]:
-            prompt = self._build_prompt(input_text)
+            import logging
+
+            logger = logging.getLogger(__name__)
+
+            state = tool_context.state
+            trip_info = state.get("family_trip_info", {})
+            plan_prompted = bool(state.get("family_plan_prompted"))
+            plan_confirmed = bool(state.get("family_plan_confirmed"))
+
+            if state.get("family_conversation_complete"):
+                destination = trip_info.get("destination", "お出かけ先")
+                message = (
+                    f"ありがとう！それじゃあ明日は「{destination}」で楽しもうね。準備は私に任せて♪"
+                    if self.persona.role == "妻"
+                    else ""
+                )
+                log = state.get("family_conversation_log", [])
+                if message:
+                    log.append({"speaker": self.persona.role, "message": message})
+                state["family_conversation_log"] = log
+                return {"speaker": self.persona.role, "message": message}
+
+            conversation_tail = state.get("family_conversation_log", [])[-3:]
+            prompt = f"""
+あなたは未来の{self.persona.role}「{self.persona.name}」です。
+次のユーザー発話に応答してください。
+
+直近の会話ログ: {conversation_tail}
+行き先: {trip_info.get("destination")}
+アクティビティ一覧: {trip_info.get("activities", [])}
+
+以下のJSON形式で出力してください:
+{{
+  "message": "返答文（300字以内）",
+  "destination": 行き先またはnull,
+  "activities": アクティビティ配列,
+  "plan_response": "YES" / "NO" / "UNKNOWN"
+}}
+
+制約:
+- plan_responseは、提案への明確な賛成ならYES、明確な拒否ならNO、判断できなければUNKNOWN。
+- JSON以外のテキストは出力しない。
+ユーザー発話: "{input_text}"
+"""
 
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(None, self.model.generate_content, prompt)
             text = response.text if hasattr(response, "text") else str(response)
 
-            # デバッグログ
-            import logging
-            logger = logging.getLogger(__name__)
             logger.info(f"[{self.persona.role}] Raw response: {text[:200]}...")
 
             destination = None
             activities: List[str] | None = None
+            plan_response: Optional[str] = None
             try:
-                # JSONの前後の余計なテキストを除去
                 text_cleaned = text.strip()
-                # マークダウンコードブロックを除去
                 if text_cleaned.startswith("```json"):
                     text_cleaned = text_cleaned[7:]
                 if text_cleaned.startswith("```"):
@@ -54,8 +92,11 @@ class FamilyTool:
                 speaker_text = result.get("message", text)
                 destination = result.get("destination")
                 activities_field = result.get("activities")
+                plan_response = result.get("plan_response")
 
-                logger.info(f"[{self.persona.role}] Parsed - destination: {destination}, activities: {activities_field}")
+                logger.info(
+                    f"[{self.persona.role}] Parsed - destination: {destination}, activities: {activities_field}"
+                )
 
                 if isinstance(activities_field, list):
                     activities = [str(item) for item in activities_field if item]
@@ -65,8 +106,7 @@ class FamilyTool:
                 logger.warning(f"[{self.persona.role}] JSON parse error: {e}, using text as-is")
                 speaker_text = text.strip()
 
-            # Stateオブジェクトからfamily_trip_infoを取得、存在しない場合は空の辞書を作成
-            trip_info = tool_context.state.get("family_trip_info", {})
+            trip_info = state.get("family_trip_info", {})
             if destination and isinstance(destination, str):
                 trip_info["destination"] = destination
                 logger.info(f"[{self.persona.role}] Set destination: {destination}")
@@ -78,14 +118,37 @@ class FamilyTool:
                 trip_info["activities"] = stored
                 logger.info(f"[{self.persona.role}] Added activities: {activities}, total: {stored}")
 
-            # Stateに更新されたtrip_infoを保存
-            tool_context.state["family_trip_info"] = trip_info
+            state["family_trip_info"] = trip_info
 
-            # Stateオブジェクトからfamily_conversation_logを取得、存在しない場合は空のリストを作成
-            log = tool_context.state.get("family_conversation_log", [])
-            log.append({"speaker": self.persona.role, "message": speaker_text})
-            # Stateに更新されたlogを保存
-            tool_context.state["family_conversation_log"] = log
+            if self.persona.role == "妻":
+                destination = trip_info.get("destination")
+                activities = trip_info.get("activities", [])
+                if state.get("family_plan_confirmed") and destination:
+                    speaker_text = (
+                        f"ありがとう！それじゃあ明日は「{destination}」で楽しもうね。準備は私に任せて♪"
+                    )
+                    state["family_conversation_complete"] = True
+                    state["family_plan_prompted"] = False
+                elif destination and len(activities) >= 2 and not state.get("family_plan_prompted"):
+                    first = activities[0]
+                    second = activities[1] if len(activities) > 1 else activities[0]
+                    speaker_text += (
+                        f"\n\n明日は「{destination}」で、{first}と{second}を楽しむ計画にしようと思うけど大丈夫かな？"
+                    )
+                    state["family_plan_prompted"] = True
+
+            if plan_prompted and not plan_confirmed and plan_response:
+                plan_response_upper = plan_response.upper()
+                if plan_response_upper.startswith("YES"):
+                    state["family_plan_confirmed"] = True
+                    state["family_plan_prompted"] = False
+                elif plan_response_upper.startswith("NO"):
+                    state["family_plan_prompted"] = False
+
+            log = state.get("family_conversation_log", [])
+            if speaker_text:
+                log.append({"speaker": self.persona.role, "message": speaker_text})
+            state["family_conversation_log"] = log
 
             return {
                 "speaker": self.persona.role,
