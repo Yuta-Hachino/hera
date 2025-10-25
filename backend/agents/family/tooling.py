@@ -65,19 +65,27 @@ class FamilyTool:
                 logger.warning(f"[{self.persona.role}] JSON parse error: {e}, using text as-is")
                 speaker_text = text.strip()
 
-            trip_info = tool_context.state.setdefault("family_trip_info", {})
+            # Stateオブジェクトからfamily_trip_infoを取得、存在しない場合は空の辞書を作成
+            trip_info = tool_context.state.get("family_trip_info", {})
             if destination and isinstance(destination, str):
                 trip_info["destination"] = destination
                 logger.info(f"[{self.persona.role}] Set destination: {destination}")
             if activities:
-                stored = trip_info.setdefault("activities", [])
+                stored = trip_info.get("activities", [])
                 for activity in activities:
                     if activity not in stored:
                         stored.append(activity)
+                trip_info["activities"] = stored
                 logger.info(f"[{self.persona.role}] Added activities: {activities}, total: {stored}")
 
-            log = tool_context.state.setdefault("family_conversation_log", [])
+            # Stateに更新されたtrip_infoを保存
+            tool_context.state["family_trip_info"] = trip_info
+
+            # Stateオブジェクトからfamily_conversation_logを取得、存在しない場合は空のリストを作成
+            log = tool_context.state.get("family_conversation_log", [])
             log.append({"speaker": self.persona.role, "message": speaker_text})
+            # Stateに更新されたlogを保存
+            tool_context.state["family_conversation_log"] = log
 
             return {
                 "speaker": self.persona.role,
@@ -85,7 +93,7 @@ class FamilyTool:
             }
 
         call_agent.__name__ = f"call_{kind}_{index}"
-        self.tool = FunctionTool(func=call_agent, require_confirmation=False)
+        self.tool = FunctionTool(func=call_agent)
 
     def _build_prompt(self, user_message: str) -> str:
         history_snippets = "\n".join(

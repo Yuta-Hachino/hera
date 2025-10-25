@@ -208,7 +208,14 @@ class FamilySessionAgent(Agent):
             letter = ""  # エラー時は空文字列
 
         # 4. ファイル保存（Heraのセッション IDを使用）
-        session_id = callback_context.state.get("hera_session_id") or callback_context.session.id
+        session_id = callback_context.state.get("hera_session_id")
+        if not session_id:
+            # セッションIDがstateにない場合は、_ensure_profileと同じ方法で取得
+            session_obj = getattr(callback_context, "session", None)
+            session_id = getattr(session_obj, "id", None)
+            if session_id is None:
+                invocation = getattr(callback_context, "_invocation_context", None)
+                session_id = getattr(getattr(invocation, "session", None), "id", None)
         if session_id:
             try:
                 logger.info(f"家族会話をセッション {session_id} に保存します")
