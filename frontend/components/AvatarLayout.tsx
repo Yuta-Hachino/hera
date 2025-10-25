@@ -30,7 +30,15 @@ export default function AvatarLayout({
     <>
       <ResizableLayout
         topContent={
-          <div className="w-full h-full bg-gradient-to-b from-purple-100 to-pink-100 flex items-center justify-center">
+          <div
+            className="w-full h-full flex items-center justify-center"
+            style={{
+              background: 'linear-gradient(to bottom, rgb(243 232 255), rgb(252 231 243))',
+              backgroundImage: 'url(/images/background.png)',
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            }}
+          >
             <HeraAvatar text={heraText} config={config} />
           </div>
         }
