@@ -20,6 +20,8 @@ export type Live2DConfig = {
   ttsVolume: number;
   ttsVoice: string;
   showGradientBackground: boolean;
+  backgroundImage?: string;
+  backgroundColor?: string;
 };
 
 type Live2DSettingsProps = {
@@ -455,6 +457,39 @@ export default function Live2DSettings({ config, onChange }: Live2DSettingsProps
                   </button>
                 </div>
 
+                {/* 背景画像 */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    背景画像
+                  </label>
+                  <select
+                    value={config.backgroundImage || ''}
+                    onChange={(e) => handleChange('backgroundImage', e.target.value || undefined)}
+                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  >
+                    <option value="">なし（透明）</option>
+                    <option value="/images/background.jpg">デフォルト背景</option>
+                    <option value="/images/bg-forest.jpg">森の背景</option>
+                    <option value="/images/bg-city.jpg">都市の背景</option>
+                    <option value="/images/bg-fantasy.jpg">ファンタジー背景</option>
+                  </select>
+                </div>
+
+                {/* 背景色 */}
+                {!config.backgroundImage && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      背景色
+                    </label>
+                    <input
+                      type="color"
+                      value={config.backgroundColor || '#ffffff'}
+                      onChange={(e) => handleChange('backgroundColor', e.target.value)}
+                      className="w-full h-10 border border-gray-300 rounded-lg cursor-pointer"
+                    />
+                  </div>
+                )}
+
                 {/* リセットボタン */}
                 <button
                   onClick={() => {
@@ -476,6 +511,8 @@ export default function Live2DSettings({ config, onChange }: Live2DSettingsProps
                       ttsVolume: 1.0,
                       ttsVoice: 'ja-JP',
                       showGradientBackground: false,
+                      backgroundImage: '/images/background.jpg',
+                      backgroundColor: '#ffffff',
                     });
                   }}
                   className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition-colors"
