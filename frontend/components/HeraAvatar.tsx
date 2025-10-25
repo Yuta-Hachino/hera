@@ -52,10 +52,10 @@ export default function HeraAvatar({ text, config }: HeraAvatarProps) {
     if (japaneseVoice) {
       utterance.voice = japaneseVoice;
     }
-    utterance.lang = 'ja-JP';
+    utterance.lang = config.ttsVoice || 'ja-JP';
     utterance.rate = 1.0;
     utterance.pitch = 1.2;
-    utterance.volume = 1.0;
+    utterance.volume = config.ttsVolume;
 
     utterance.onstart = () => {
       setIsSpeaking(true);
@@ -95,7 +95,7 @@ export default function HeraAvatar({ text, config }: HeraAvatarProps) {
       }
       stopAudioAnalysis();
     };
-  }, [text, mounted]);
+  }, [text, mounted, config.ttsVolume, config.ttsVoice]);
 
   // 音声分析を開始（マイク入力からの音量検出）
   const startAudioAnalysis = async () => {

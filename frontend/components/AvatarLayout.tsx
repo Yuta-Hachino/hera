@@ -22,22 +22,24 @@ export default function AvatarLayout({
     blinkInterval: [3000, 5000],
     enableLipSync: true,
     lipSyncSensitivity: 1.5,
+    ttsVolume: 1.0,
+    ttsVoice: 'ja-JP',
   });
 
   return (
     <>
       <ResizableLayout
-        leftContent={
+        topContent={
           <div className="w-full h-full bg-gradient-to-b from-purple-100 to-pink-100 flex items-center justify-center">
             <HeraAvatar text={heraText} config={config} />
           </div>
         }
-        rightContent={
+        bottomContent={
           <div className="w-full h-full flex flex-col bg-white shadow-lg">
             {children}
           </div>
         }
-        defaultLeftWidth={33}
+        defaultTopHeight={60}
       />
       <Live2DSettings config={config} onChange={setConfig} />
     </>

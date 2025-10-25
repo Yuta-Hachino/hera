@@ -3,17 +3,17 @@
 import { ReactNode, useState, useRef, useEffect } from 'react';
 
 type ResizableLayoutProps = {
-  leftContent: ReactNode;
-  rightContent: ReactNode;
-  defaultLeftWidth?: number; // パーセンテージ (0-100)
+  topContent: ReactNode;
+  bottomContent: ReactNode;
+  defaultTopHeight?: number; // パーセンテージ (0-100)
 };
 
 export default function ResizableLayout({
-  leftContent,
-  rightContent,
-  defaultLeftWidth = 33,
+  topContent,
+  bottomContent,
+  defaultTopHeight = 60,
 }: ResizableLayoutProps) {
-  const [leftWidth, setLeftWidth] = useState(defaultLeftWidth);
+  const [topHeight, setTopHeight] = useState(defaultTopHeight);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -22,11 +22,11 @@ export default function ResizableLayout({
       if (!isDragging || !containerRef.current) return;
 
       const containerRect = containerRef.current.getBoundingClientRect();
-      const newLeftWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+      const newTopHeight = ((e.clientY - containerRect.top) / containerRect.height) * 100;
 
-      // 最小20%、最大80%に制限
-      const clampedWidth = Math.min(Math.max(newLeftWidth, 20), 80);
-      setLeftWidth(clampedWidth);
+      // 最小30%、最大70%に制限
+      const clampedHeight = Math.min(Math.max(newTopHeight, 30), 70);
+      setTopHeight(clampedHeight);
     };
 
     const handleMouseUp = () => {
@@ -38,7 +38,7 @@ export default function ResizableLayout({
       document.addEventListener('mouseup', handleMouseUp);
       // ドラッグ中はテキスト選択を無効化
       document.body.style.userSelect = 'none';
-      document.body.style.cursor = 'col-resize';
+      document.body.style.cursor = 'row-resize';
     }
 
     return () => {
@@ -54,38 +54,38 @@ export default function ResizableLayout({
   };
 
   return (
-    <div ref={containerRef} className="flex h-screen bg-gray-50">
-      {/* 左側コンテンツ */}
+    <div ref={containerRef} className="flex flex-col h-screen bg-gray-50">
+      {/* 上側コンテンツ (Live2D) */}
       <div
-        style={{ width: `${leftWidth}%` }}
+        style={{ height: `${topHeight}%` }}
         className="flex-shrink-0 overflow-hidden"
       >
-        {leftContent}
+        {topContent}
       </div>
 
       {/* リサイザー（ドラッグハンドル） */}
       <div
         onMouseDown={handleMouseDown}
-        className={`w-1 bg-gray-300 hover:bg-primary-500 cursor-col-resize relative group transition-colors ${
+        className={`h-1 bg-gray-300 hover:bg-primary-500 cursor-row-resize relative group transition-colors ${
           isDragging ? 'bg-primary-500' : ''
         }`}
       >
         {/* ドラッグエリアを広げるための透明な領域 */}
-        <div className="absolute inset-y-0 -left-1 -right-1 w-3" />
+        <div className="absolute inset-x-0 -top-1 -bottom-1 h-3" />
 
         {/* ビジュアルインジケーター */}
-        <div className="absolute inset-y-0 left-1/2 transform -translate-x-1/2 flex items-center justify-center">
-          <div className={`w-1 h-12 rounded-full ${
+        <div className="absolute inset-x-0 top-1/2 transform -translate-y-1/2 flex items-center justify-center">
+          <div className={`h-1 w-12 rounded-full ${
             isDragging ? 'bg-primary-600' : 'bg-gray-400 group-hover:bg-primary-500'
           } transition-colors flex items-center justify-center`}>
-            <div className="flex flex-col gap-0.5">
-              <div className={`w-0.5 h-1 rounded-full ${
+            <div className="flex gap-0.5">
+              <div className={`h-0.5 w-1 rounded-full ${
                 isDragging ? 'bg-white' : 'bg-white/70'
               }`} />
-              <div className={`w-0.5 h-1 rounded-full ${
+              <div className={`h-0.5 w-1 rounded-full ${
                 isDragging ? 'bg-white' : 'bg-white/70'
               }`} />
-              <div className={`w-0.5 h-1 rounded-full ${
+              <div className={`h-0.5 w-1 rounded-full ${
                 isDragging ? 'bg-white' : 'bg-white/70'
               }`} />
             </div>
@@ -93,12 +93,12 @@ export default function ResizableLayout({
         </div>
       </div>
 
-      {/* 右側コンテンツ */}
+      {/* 下側コンテンツ (チャット) */}
       <div
-        style={{ width: `${100 - leftWidth}%` }}
+        style={{ height: `${100 - topHeight}%` }}
         className="flex-1 overflow-hidden"
       >
-        {rightContent}
+        {bottomContent}
       </div>
     </div>
   );
