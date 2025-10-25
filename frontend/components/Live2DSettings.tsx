@@ -20,6 +20,7 @@ export type Live2DConfig = {
   ttsVolume: number;
   ttsVoice: string;
   showGradientBackground: boolean;
+  backgroundOpacity: number;
 };
 
 type Live2DSettingsProps = {
@@ -97,9 +98,9 @@ export default function Live2DSettings({ config, onChange }: Live2DSettingsProps
                   </label>
                   <input
                     type="range"
-                    min="-1"
-                    max="1"
-                    step="0.05"
+                    min="-5"
+                    max="5"
+                    step="0.1"
                     value={config.positionY}
                     onChange={(e) => handleChange('positionY', parseFloat(e.target.value))}
                     className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-500"
@@ -455,6 +456,26 @@ export default function Live2DSettings({ config, onChange }: Live2DSettingsProps
                   </button>
                 </div>
 
+                {/* 背景透明度 */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    背景透明度: {Math.round(config.backgroundOpacity * 100)}%
+                  </label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={config.backgroundOpacity}
+                    onChange={(e) => handleChange('backgroundOpacity', parseFloat(e.target.value))}
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-500"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>透明</span>
+                    <span>不透明</span>
+                  </div>
+                </div>
+
                 {/* リセットボタン */}
                 <button
                   onClick={() => {
@@ -476,6 +497,7 @@ export default function Live2DSettings({ config, onChange }: Live2DSettingsProps
                       ttsVolume: 1.0,
                       ttsVoice: 'ja-JP',
                       showGradientBackground: false,
+                      backgroundOpacity: 0.0,
                     });
                   }}
                   className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition-colors"

@@ -146,6 +146,23 @@ export default function HeraAvatar({ text, config }: HeraAvatarProps) {
     );
   }
 
+  // 背景色を透明度に基づいて計算（RGBA形式）
+  const getBackgroundColor = () => {
+    // ベースカラー: 0xf5e6ff (淡い紫)
+    const baseColor = 0xf5e6ff;
+    const opacity = config.backgroundOpacity;
+
+    // 完全に透明な場合は0x000000（透明）を返す
+    if (opacity === 0) {
+      return 0x000000;
+    }
+
+    // 不透明度に応じた色を返す（アルファチャンネルは16進数の上位バイトで表現）
+    // PixiJSでは、0xAARRGGBB形式でアルファを指定できる場合がある
+    const alpha = Math.round(opacity * 255);
+    return (alpha << 24) | baseColor;
+  };
+
   return (
     <div className="relative w-full h-full flex items-center justify-center">
       {typeof window !== 'undefined' && (
@@ -157,7 +174,7 @@ export default function HeraAvatar({ text, config }: HeraAvatarProps) {
           scale={config.scale}
           width={800}
           height={800}
-          backgroundColor={0xf5e6ff}
+          backgroundColor={getBackgroundColor()}
           enableBlinking={config.enableBlinking}
           blinkInterval={config.blinkInterval}
           blinkDuration={config.blinkDuration}
