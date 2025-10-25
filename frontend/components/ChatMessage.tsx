@@ -18,10 +18,10 @@ export default function ChatMessage({
       className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4 animate-fade-in`}
     >
       <div
-        className={`max-w-[70%] rounded-2xl px-4 py-3 ${
+        className={`max-w-[70%] rounded-2xl px-4 py-3 backdrop-blur-sm ${
           isUser
-            ? 'bg-primary-500 text-white rounded-br-none'
-            : 'bg-gray-200 text-gray-800 rounded-bl-none'
+            ? 'bg-primary-500 bg-opacity-60 text-white rounded-br-none'
+            : 'bg-gray-200 bg-opacity-60 text-gray-800 rounded-bl-none'
         }`}
       >
         <p className="text-sm leading-relaxed whitespace-pre-wrap">{message}</p>

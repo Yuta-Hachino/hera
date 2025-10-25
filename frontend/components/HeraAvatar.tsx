@@ -155,9 +155,8 @@ export default function HeraAvatar({ text, config }: HeraAvatarProps) {
           positionY={config.positionY}
           positionX={config.positionX}
           scale={config.scale}
-          width={800}
-          height={800}
-          backgroundAlpha={0}
+          width={typeof window !== 'undefined' ? Math.min(window.innerWidth, 1200) : 800}
+          height={typeof window !== 'undefined' ? Math.min(window.innerHeight, 1200) : 800}
           enableBlinking={config.enableBlinking}
           blinkInterval={config.blinkInterval}
           blinkDuration={config.blinkDuration}
