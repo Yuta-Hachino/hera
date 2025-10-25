@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import AvatarLayout from '@/components/AvatarLayout';
+import BackgroundLayout from '@/components/BackgroundLayout';
 import ChatMessage from '@/components/ChatMessage';
 import NovelMessage from '@/components/NovelMessage';
 import ChatInput from '@/components/ChatInput';
@@ -108,10 +108,10 @@ export default function ChatPage() {
   }
 
   return (
-    <AvatarLayout heraText={currentHeraText}>
-      <div className="flex flex-col h-full">
+    <BackgroundLayout heraText={currentHeraText}>
+      <div className="flex flex-col h-full max-w-4xl mx-auto px-4">
         {/* ヘッダー */}
-        <div className="bg-gradient-to-r from-primary-500 to-pink-500 text-white p-3">
+        <div className="bg-gradient-to-r from-primary-500/70 to-pink-500/70 text-white p-3 backdrop-blur-sm">
           <h1 className="text-lg font-bold">ヘーラーとの対話</h1>
           <p className="text-xs opacity-90">
             あなたの情報を教えてください
@@ -122,17 +122,17 @@ export default function ChatPage() {
         <ProfileProgress progress={progress} />
 
         {/* スタイル切り替えボタン */}
-        <div className="px-4 py-2 bg-gray-50 border-b">
+        <div className="px-4 py-2">
           <button
             onClick={() => setUseNovelStyle(!useNovelStyle)}
-            className="text-xs bg-white hover:bg-gray-100 px-3 py-1 rounded-full border border-gray-300 transition-colors"
+            className="text-xs bg-white hover:bg-gray-100 px-3 py-1 rounded-full border border-gray-300 transition-colors bg-opacity-80"
           >
             {useNovelStyle ? '💬 チャット形式' : '📖 ノベル形式'}に切り替え
           </button>
         </div>
 
         {/* チャット履歴 */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+        <div className="flex-1 overflow-y-auto p-4 space-y-2 mt-16">
           {messages.length === 0 && (
             <div className="text-center text-gray-500 mt-8">
               <p>ヘーラーがあなたをお待ちしています。</p>
@@ -186,7 +186,7 @@ export default function ChatPage() {
 
         {/* 完了ボタン */}
         {isComplete && (
-          <div className="px-4 py-2 bg-green-50 border-t border-green-200">
+          <div className="px-4 py-2">
             <button
               onClick={handleComplete}
               className="w-full bg-green-500 text-white font-semibold py-3 px-6 rounded-lg hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-300 transition-colors"
@@ -197,8 +197,10 @@ export default function ChatPage() {
         )}
 
         {/* 入力フォーム */}
-        <ChatInput onSend={handleSend} disabled={isSending} />
+        <div className="p-4">
+          <ChatInput onSend={handleSend} disabled={isSending} />
+        </div>
       </div>
-    </AvatarLayout>
+    </BackgroundLayout>
   );
 }

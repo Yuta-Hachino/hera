@@ -69,7 +69,7 @@ export default function NovelMessage({
   return (
     <div className="animate-fade-in mb-6">
       {/* メッセージボックス */}
-      <div className="bg-white/95 backdrop-blur-sm rounded-lg shadow-lg p-6 border border-gray-200">
+      <div className="bg-white/40 backdrop-blur-sm rounded-lg shadow-lg p-6 border border-gray-200">
         {/* スピーカー名前とアバター */}
         <div className="flex items-center mb-3">
           {avatar && (

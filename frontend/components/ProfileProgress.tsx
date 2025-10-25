@@ -33,7 +33,7 @@ export default function ProfileProgress({ progress }: ProfileProgressProps) {
     totalRequired > 0 ? Math.round((totalCollected / totalRequired) * 100) : 0;
 
   return (
-    <div className="bg-white border-b border-gray-200 px-4 py-2">
+    <div className="px-4 py-2">
       <div className="flex items-center gap-3">
         <span className="text-xs font-medium text-gray-600 whitespace-nowrap">
           進捗

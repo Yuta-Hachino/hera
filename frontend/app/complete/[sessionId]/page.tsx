@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import AvatarLayout from '@/components/AvatarLayout';
+import BackgroundLayout from '@/components/BackgroundLayout';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { useTTS } from '@/hooks/useTTS';
 import { getSessionStatus, completeSession } from '@/lib/api';
@@ -93,10 +93,10 @@ export default function CompletePage() {
   }
 
   return (
-    <AvatarLayout isAvatarPlaying={isSpeaking} audioSrc={audioSrc}>
+    <BackgroundLayout heraText={isSpeaking ? 'お疲れ様でした！あなたの情報を確認してください。' : undefined}>
       <div className="flex flex-col h-full">
         {/* ヘッダー */}
-        <div className="bg-gradient-to-r from-green-500 to-teal-500 text-white p-4">
+        <div className="bg-gradient-to-r from-green-500/70 to-teal-500/70 text-white p-4 backdrop-blur-sm">
           <h1 className="text-xl font-bold">情報確認</h1>
           <p className="text-sm opacity-90">収集した情報を確認してください</p>
         </div>
@@ -211,7 +211,7 @@ export default function CompletePage() {
           </div>
         )}
       </div>
-    </AvatarLayout>
+    </BackgroundLayout>
   );
 }
 

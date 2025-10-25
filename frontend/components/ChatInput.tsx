@@ -25,7 +25,7 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
   };
 
   return (
-    <div className="border-t border-gray-200 bg-white p-4">
+    <div className="p-4">
       <div className="flex items-end gap-2">
         <textarea
           value={message}
@@ -34,7 +34,7 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
           placeholder="メッセージを入力してください..."
           disabled={disabled}
           rows={3}
-          className="flex-1 resize-none rounded-lg border border-gray-300 px-4 py-2 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:bg-gray-100 disabled:cursor-not-allowed"
+          className="flex-1 resize-none rounded-lg border border-gray-300 px-4 py-2 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:bg-gray-100 disabled:cursor-not-allowed bg-white bg-opacity-60 backdrop-blur-sm"
         />
         <button
           onClick={handleSend}
