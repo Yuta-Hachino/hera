@@ -32,7 +32,6 @@ export default function AvatarLayout({
     ttsVolume: 1.0,
     ttsVoice: 'ja-JP',
     showGradientBackground: false,
-    backgroundOpacity: 0.0,
   });
 
   return (
