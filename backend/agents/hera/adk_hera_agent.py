@@ -29,7 +29,7 @@ from .profile_validation import (
     profile_is_complete,
     prune_empty_fields,
 )
-
+from agents.family.family_agent import FamilyAgent
 
 FULL_WIDTH_DIGIT_MAP = str.maketrans({
     "０": "0",
@@ -122,6 +122,11 @@ class ADKHeraAgent:
         self.conversation_history = []
         self.last_extracted_fields: Dict[str, Any] = {}
         self._session_state = self.SessionState.COLLECTING
+        self._last_completion_result: Dict[str, Any] = {
+            "status": "INCOMPLETE",
+            "completion_message": None,
+            "remaining_missing": []
+        }
 
         # 情報収集の進捗管理（必須項目定義）
         self.base_required_info = PROFILE_BASE_REQUIRED_FIELDS.copy()
@@ -183,27 +188,9 @@ class ADKHeraAgent:
         if self.agent.tools:
             print(f"[DEBUG] ツール名: {[getattr(t, 'name', str(t)) for t in self.agent.tools]}")
 
-        # サブエージェントとしてfamily_agentを追加（遅延インポート対応）
-        try:
-            # agents.familyパッケージから直接インポート
-            import sys
-            agents_dir = os.path.dirname(os.path.dirname(__file__))
-            if agents_dir not in sys.path:
-                sys.path.insert(0, agents_dir)
-
-            from family.entrypoints import create_family_session
-            family_agent = create_family_session()
-            self.agent.sub_agents = [family_agent]
-            print("[SUCCESS] Familyエージェントをサブエージェントとして追加しました")
-
-            # デバッグ：サブエージェント追加後もツールが残っているか確認
-            print(f"[DEBUG] サブエージェント追加後のHeraツール数: {len(self.agent.tools) if self.agent.tools else 0}")
-        except Exception as e:
-            print(f"[WARNING] Familyエージェントのインポートに失敗しました: {e}")
-            import traceback
-            traceback.print_exc()
-            # サブエージェントなしで続行
-            self.agent.sub_agents = []
+        # サブエージェントを設定（家族エージェントへの自動転送を有効化）
+        self.agent.sub_agents = [FamilyAgent]
+        print("[SUCCESS] Familyエージェントをサブエージェントとして追加しました")
 
     @property
     def required_info(self) -> List[str]:
@@ -338,9 +325,9 @@ OK例: 関連する情報をまとめて聞く
 
         # ADKでは関数を直接toolsリストに追加する方法が推奨されている
         # 関数名、docstring、パラメータが自動的に解析されてツールスキーマが生成される
-        # transfer_to_agentはADKが自動提供するため手動追加不要
         return [
-            self.check_session_completion  # extract_user_infoを削除
+            self.check_session_completion,
+            self.transfer_to_agent  # transfer_to_agentを明示的に追加
         ]
 
     def _wrap_response(self, message: Optional[str]) -> Dict[str, str]:
@@ -537,6 +524,7 @@ JSONの外に余計なテキストを含めないでください。
     async def _update_user_profile(self, extracted_info: Dict[str, Any]) -> None:
         """ユーザープロファイルを更新（データ検証付き）"""
         extracted_info = extracted_info or {}
+        print(f"[DEBUG] _update_user_profile called with: {extracted_info}")
 
         for key, value in extracted_info.items():
             if hasattr(self.user_profile, key) and value is not None:
@@ -959,6 +947,30 @@ JSONの外に余計なテキストを含めないでください。
                 "completion_message": None
             }
 
+    def transfer_to_agent(self, agent_name: str) -> Dict[str, Any]:
+        """他のエージェントに転送するツール"""
+        try:
+            print(f"[DEBUG] transfer_to_agent called with: {agent_name}")
+
+            if agent_name == "family_session_agent":
+                return {
+                    "success": True,
+                    "message": "家族会話エージェントに転送します。未来の家族と会話を始めましょう！",
+                    "next_agent": "family_session_agent"
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"申し訳ございません。{agent_name}への転送は対応していません。"
+                }
+
+        except Exception as e:
+            print(f"[ERROR] transfer_to_agent error: {e}")
+            return {
+                "success": False,
+                "message": "申し訳ございません。転送中にエラーが発生しました。"
+            }
+
     async def _check_completion_with_llm(self, user_message: str) -> bool:
         """LLMを使用して情報収集完了を判定
 
@@ -1053,7 +1065,7 @@ JSONの外に余計なテキストを含めないでください。
             model = GenerativeModel('gemini-2.5-pro')
 
             # 現在のプロファイル情報を取得
-            current_profile = await self._format_collected_info()
+            formatted_profile = await self._format_collected_info()
             missing_fields = compute_missing_fields(self.user_profile)
 
             # 不足項目の説明を生成
@@ -1062,8 +1074,31 @@ JSONの外に余計なテキストを含めないでください。
                 for field in missing_fields
             ]) if missing_fields else "- （不足はありません）"
 
+            goal_lines: List[str] = []
+            if {"age", "gender", "relationship_status"} & set(missing_fields):
+                goal_lines.append("- 年齢・性別・交際状況をまとめて確認する")
+            if "location" in missing_fields:
+                goal_lines.append("- お住まいの地域を丁寧に尋ねる")
+            if "income_range" in missing_fields:
+                goal_lines.append("- 年収の目安（例: 300万円程度）を尋ねる")
+            if "user_personality_traits" in missing_fields:
+                goal_lines.append("- あなた自身の性格や強みを掘り下げる（ビッグファイブを意識）")
+            if "partner_face_description" in missing_fields:
+                goal_lines.append("- パートナーの外見描写を具体的に引き出す")
+            if any(field in missing_fields for field in ("ideal_partner", "current_partner")):
+                goal_lines.append("- パートナーの性格や外見をまとめて尋ねる")
+            if "children_info" in missing_fields:
+                goal_lines.append("- 希望するお子さんの人数や性別を尋ねる")
+            if not goal_lines:
+                goal_lines.append("- 必須項目は揃っているため、感謝を伝えつつ次のステップを案内する")
+            goals_text = "\n".join(goal_lines)
+
             # 会話の流れを考慮したコンテキスト
-            recent_history = self.conversation_history[-3:] if len(self.conversation_history) > 3 else self.conversation_history
+            recent_history = (
+                self.conversation_history[-3:]
+                if len(self.conversation_history) > 3
+                else self.conversation_history
+            )
 
             prompt = f"""
 あなたは{self.persona.name}（{self.persona.role}）です。
@@ -1076,7 +1111,7 @@ JSONの外に余計なテキストを含めないでください。
 - 性格: {self.persona.personality}
 
 現在のユーザープロファイル：
-{current_profile}
+{formatted_profile}
 
 会話履歴：
 {recent_history}
@@ -1086,6 +1121,9 @@ JSONの外に余計なテキストを含めないでください。
 
 不足している必須情報：
 {missing_fields_text}
+
+会話の目的：
+{goals_text}
 
 あなたの役割：
 1. 温かみのある、親しみやすい口調で応答する
@@ -1158,7 +1196,7 @@ JSONの外に余計なテキストを含めないでください。
 - 常に愛情深く、家族思いの神として振る舞う
 
 【出力形式】
-以下のJSON形式のみで回答してください：
+以下のJSON形式で回答してください：
 
 ```json
 {{
@@ -1176,6 +1214,7 @@ JSONの外に余計なテキストを含めないでください。
 - children_infoは必ず配列（[]）形式で返す
 - user_personality_traits は必ず辞書（{{}}）形式で返す
 - responseは固定文言ではなく、heraの人格と状況に応じた自然で温かい文章で返す
+- ツール呼び出し（check_session_completion）を適切に使用してください
 """
 
             response = model.generate_content(prompt)
@@ -1188,9 +1227,12 @@ JSONの外に余計なテキストを含めないでください。
 
                 # 抽出された情報をプロファイルに反映
                 extracted_info = result.get("extracted_info", {})
+                print(f"[DEBUG] extracted_info from LLM: {extracted_info}")
                 if extracted_info:
                     await self._update_user_profile(extracted_info)
                     self.last_extracted_fields = extracted_info
+                else:
+                    print("[DEBUG] No extracted_info found in LLM response")
 
                 # heraの人格を活かした動的応答を返す
                 return result.get("response", "お話を伺いました。続きもぜひ教えてください。")
@@ -1242,6 +1284,14 @@ JSONの外に余計なテキストを含めないでください。
             if not goal_lines:
                 goal_lines.append("- 必須項目は揃っているため、感謝を伝えつつ次のステップを案内する")
 
+            formatted_profile = await self._format_collected_info()
+            recent_history = (
+                self.conversation_history[-3:]
+                if len(self.conversation_history) > 3
+                else self.conversation_history
+            )
+            goals_text = "\n".join(goal_lines)
+
             prompt = f"""
 あなたは{self.persona.name}（{self.persona.role}）です。
 
@@ -1253,10 +1303,10 @@ JSONの外に余計なテキストを含めないでください。
 - 性格: {self.persona.personality}
 
 現在のユーザープロファイル：
-{await self._format_collected_info()}
+{formatted_profile}
 
 会話履歴：
-{self.conversation_history[-3:] if len(self.conversation_history) > 3 else self.conversation_history}
+{recent_history}
 
 ユーザーの最新メッセージ：
 {user_message}
@@ -1265,7 +1315,7 @@ JSONの外に余計なテキストを含めないでください。
 {missing_fields_text}
 
 会話の目的：
-{"\n".join(goal_lines)}
+{goals_text}
 
 あなたの役割：
 1. 温かみのある、親しみやすい口調で応答する
@@ -1444,14 +1494,34 @@ JSONの外に余計なテキストを含めないでください。
             await self._save_conversation_history()
 
             # 統合処理（情報抽出 + 返答生成）
+            print(f"[DEBUG] Calling _generate_hera_response_with_extraction for message: {message}")
             response_text = await self._generate_hera_response_with_extraction(message)
+            print(f"[DEBUG] Response from _generate_hera_response_with_extraction: {response_text}")
 
             # エージェントの応答を履歴に追加
             await self._add_to_history("hera", response_text)
             await self._save_conversation_history()
 
+            # メッセージは既に履歴へ登録済みなので、完了判定の評価のみ実行
+            completion_result = await self._evaluate_session_completion(
+                message,
+                user_message_already_logged=True,
+            )
+
+            # セッションデータを保存（プロファイル情報を含む）
+            await self._save_session_data()
+
             # レスポンスを返す
             payload = self._wrap_response(response_text)
+            profile_snapshot = prune_empty_fields(self.user_profile.dict())
+            payload.update({
+                "session_status": completion_result.get("status", "INCOMPLETE"),
+                "completion_message": completion_result.get("completion_message"),
+                "missing_fields": completion_result.get("remaining_missing", []),
+                "user_profile": profile_snapshot,
+                "information_progress": build_information_progress(profile_snapshot),
+                "last_extracted_fields": self.last_extracted_fields,
+            })
             payload_json = json.dumps(payload, ensure_ascii=False)
 
             print(f"📤 レスポンス: {payload}")
@@ -1465,35 +1535,39 @@ JSONの外に余計なテキストを含めないでください。
             return json.dumps(self._wrap_response(error_response), ensure_ascii=False)
 
 
-    async def check_session_completion(self, user_message: str) -> str:
-        """セッション完了判定ツール
+    async def _evaluate_session_completion(
+        self,
+        user_message: Optional[str],
+        *,
+        user_message_already_logged: bool,
+    ) -> Dict[str, Any]:
+        """最新メッセージをもとに完了判定を行い、結果を辞書で返す"""
+        sanitized_message = user_message or ""
+        print(f"[INFO] セッション完了評価を実行: {sanitized_message}")
 
-        情報収集が完了したかどうかを判定します
-        情報が揃ったタイミングで必ず呼び出されるツールです
-
-        Args:
-            user_message: ユーザーからのメッセージ
-
-        Returns:
-            str: 完了状況のメッセージ
-        """
-        print(f"[INFO] 完了判定ツールが呼び出されました: {user_message}")
+        result: Dict[str, Any] = {
+            "status": "INCOMPLETE",
+            "completion_message": None,
+            "remaining_missing": [],
+        }
 
         try:
-            # 会話履歴にユーザーメッセージを追加（完了判定経路でも欠落させない）
-            await self._add_to_history("user", user_message)
-            # 履歴のみ即時保存
-            await self._save_conversation_history()
+            # 会話履歴が未記録の場合のみ追加
+            if not user_message_already_logged and sanitized_message:
+                await self._add_to_history("user", sanitized_message)
+                await self._save_conversation_history()
 
             # セッションIDのフォールバック（runを経由しない呼出し対策）
             if not self.current_session:
                 latest_sid = await self._get_latest_adk_session_id(retries=3, timeout_sec=10.0)
                 if not latest_sid:
-                    print("[ERROR] ADKセッションIDが取得できません（完了判定フォールバック）")
-                    return "INCOMPLETE"
+                    print("[ERROR] ADKセッションIDが取得できません（完了評価フォールバック）")
+                    result["status"] = "ERROR"
+                    result["error"] = "セッションIDを取得できませんでした"
+                    self._last_completion_result = dict(result)
+                    return result
                 self.current_session = latest_sid
-                print(f"[INFO] 完了判定側でセッションID設定: {self.current_session}")
-                # ディレクトリ未作成時のみ開始
+                print(f"[INFO] 完了評価側でセッションID設定: {self.current_session}")
                 session_dir = os.path.join(get_sessions_dir(), self.current_session)
                 if not os.path.exists(session_dir):
                     await self.start_session(self.current_session)
@@ -1502,60 +1576,75 @@ JSONの外に余計なテキストを含めないでください。
             missing_fields = compute_missing_fields(self.user_profile)
 
             # 統合完了チェック（1回のLLM呼び出しで抽出・判定・メッセージ生成）
-            result = await self._unified_completion_check(user_message, missing_fields)
+            unified_result = await self._unified_completion_check(sanitized_message, missing_fields)
 
             # 抽出された情報をプロファイルに反映
-            if result.get("missing_info"):
-                await self._update_user_profile(result["missing_info"])
-                self.last_extracted_fields = result["missing_info"]
+            if unified_result.get("missing_info"):
+                await self._update_user_profile(unified_result["missing_info"])
+                self.last_extracted_fields = unified_result["missing_info"]
 
             # 更新後の不足フィールドを再チェック
             remaining_missing = compute_missing_fields(self.user_profile)
+            result["remaining_missing"] = remaining_missing
 
             # LLMの判定と実際の不足フィールドの整合性を取る
-            llm_complete = result.get("is_complete", False)
+            llm_complete = unified_result.get("is_complete", False)
             actually_complete = not remaining_missing
-
-            # どちらかが完了と判定されていれば完了とする
             is_complete = llm_complete or actually_complete
-            completion_message = result.get("completion_message")
+            completion_message = unified_result.get("completion_message")
+            result["completion_message"] = completion_message
 
-            print(f"[DEBUG] 完了判定詳細:")
+            print("[DEBUG] 完了判定詳細:")
             print(f"  LLM判定: {llm_complete}")
             print(f"  実際の不足: {remaining_missing}")
             print(f"  最終判定: {is_complete}")
 
             if is_complete:
                 print("[INFO] session completion confirmed")
+                result["status"] = "COMPLETED"
                 if self._session_state != self.SessionState.COMPLETED:
-                    # 画像生成を開始
                     await self._generate_family_images()
-
-                    # 完了メッセージを履歴に記録
                     if completion_message:
                         await self._add_to_history("hera", completion_message)
                         await self._save_conversation_history()
-
-                    # 完了時のみディスク保存（プロフィール・履歴）
                     await self._save_session_data()
                     self._session_state = self.SessionState.COMPLETED
-
-                    # 完了メッセージを返して、Familyエージェントへの遷移を促す
-                    return f"COMPLETED: {completion_message}"
-                else:
-                    # 既に完了済みの場合は簡潔なメッセージ
-                    return "COMPLETED"
             else:
                 print("[INFO] session continues; missing fields remain")
                 if remaining_missing:
                     print(f"[DEBUG] remaining missing fields: {remaining_missing}")
-                return "INCOMPLETE"
+
+            self._last_completion_result = dict(result)
+            return result
 
         except Exception as e:
-            print(f"[ERROR] completion check failed: {e}")
+            print(f"[ERROR] completion evaluation failed: {e}")
             import traceback
             traceback.print_exc()
-            return f"完了判定中にエラーが発生しました: {str(e)}"
+            result["status"] = "ERROR"
+            result["error"] = str(e)
+            self._last_completion_result = dict(result)
+            return result
+
+    async def check_session_completion(self, user_message: str) -> str:
+        """セッション完了判定ツール（ADK FunctionTool互換）
+
+        Returns:
+            str: 完了状況のメッセージ
+        """
+        evaluation = await self._evaluate_session_completion(
+            user_message,
+            user_message_already_logged=False,
+        )
+        status = evaluation.get("status", "INCOMPLETE")
+
+        if status == "COMPLETED":
+            completion_message = evaluation.get("completion_message")
+            return f"COMPLETED: {completion_message}" if completion_message else "COMPLETED"
+        if status == "ERROR":
+            error_message = evaluation.get("error") or "不明なエラーが発生しました"
+            return f"完了判定中にエラーが発生しました: {error_message}"
+        return "INCOMPLETE"
 
     async def _generate_family_images(self):
         """家族の画像を生成（修正版）"""
