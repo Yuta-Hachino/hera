@@ -1,17 +1,17 @@
 import os
 import uuid
 import json
-import requests
+import asyncio
+import threading
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from pydantic import BaseModel
 from dotenv import load_dotenv
 import sys
-import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config import get_sessions_dir
 from werkzeug.utils import secure_filename
 from flask import send_from_directory
+from agents.hera.adk_hera_agent import ADKHeraAgent
 from agents.hera.profile_validation import (
     build_information_progress,
     compute_missing_fields,
@@ -19,7 +19,31 @@ from agents.hera.profile_validation import (
     prune_empty_fields,
 )
 
-load_dotenv() 
+load_dotenv()
+
+# Heraエージェントを直接初期化し、非同期ループを常駐させる
+hera_agent = ADKHeraAgent(
+    gemini_api_key=os.getenv("GEMINI_API_KEY")
+)
+_agent_loop = asyncio.new_event_loop()
+
+
+def _agent_loop_worker() -> None:
+    asyncio.set_event_loop(_agent_loop)
+    _agent_loop.run_forever()
+
+
+threading.Thread(target=_agent_loop_worker, daemon=True).start()
+
+
+def run_async(coro):
+    """バックグラウンドループ上でコルーチンを同期的に実行"""
+    future = asyncio.run_coroutine_threadsafe(coro, _agent_loop)
+    try:
+        return future.result()
+    except Exception:
+        future.cancel()
+        raise
 
 # Flaskアプリ
 app = Flask(__name__)
@@ -28,12 +52,6 @@ CORS(app)
 # セッションディレクトリ
 SESSIONS_DIR = get_sessions_dir()
 os.makedirs(SESSIONS_DIR, exist_ok=True)
-
-# ADK Web UIのベースURL
-ADK_BASE_URL = os.getenv("ADK_BASE_URL", "http://localhost:8000")
-
-class MessageRequest(BaseModel):
-    message: str
 
 # Utility関数
 
@@ -52,143 +70,7 @@ def save_file(path: str, data):
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-def ensure_adk_session(app_name: str, user_id: str, session_id: str, base_url: str):
-    """ADKセッションが存在するか確認し、存在しない場合は作成する"""
-    try:
-        # 既存確認
-        print(f"[DEBUG] セッション確認: {base_url}/apps/{app_name}/users/{user_id}/sessions/{session_id}")
-        r = requests.get(f"{base_url}/apps/{app_name}/users/{user_id}/sessions/{session_id}", timeout=1000)
-        print(f"[DEBUG] セッション確認結果: {r.status_code}")
-        if r.status_code == 200:
-            print(f"[DEBUG] セッション存在")
-            return True
-        if r.status_code == 404:
-            # 明示 ID で作成
-            print(f"[DEBUG] セッション作成: {base_url}/apps/{app_name}/users/{user_id}/sessions/{session_id}")
-            r2 = requests.post(
-                f"{base_url}/apps/{app_name}/users/{user_id}/sessions/{session_id}",
-                json={}, timeout=1000
-            )
-            print(f"[DEBUG] セッション作成結果: {r2.status_code}")
-            result = r2.status_code in (200, 201)
-            print(f"[DEBUG] セッション作成成功: {result}")
-            return result
-        # それ以外はエラー
-        print(f"[DEBUG] セッション確認エラー: {r.status_code}")
-        r.raise_for_status()
-        return False
-    except Exception as e:
-        print(f"ADKセッション確認エラー: {e}")
-        return False
-
-def call_hera_agent(session_id: str, message: str):
-    """ADK Web UIサーバー経由でHeraエージェントにメッセージを送信"""
-    try:
-        # ADK Web UIサーバーの正しいエンドポイントを使用
-        # セッション管理は自動的に処理されるため、直接/runエンドポイントを呼び出し
-        print(f"[DEBUG] /run呼び出し開始: session_id={session_id}, message={message}")
-        message_response = requests.post(
-            f"{ADK_BASE_URL}/run",
-            json={
-                "app_name": "hera",
-                "user_id": "user",
-                "session_id": session_id,
-                "new_message": {
-                    "role": "user",
-                    "parts": [{"text": message}]
-                }
-            },
-            timeout=1000
-        )
-        print(f"[DEBUG] /run呼び出し完了: status_code={message_response.status_code}")
-
-        if message_response.status_code not in [200, 201]:
-            print(f"ADK Web UI通信エラー: {message_response.status_code}")
-            print(f"エラーレスポンス: {message_response.text}")
-            return {
-                "error": "エージェントサーバーとの通信に失敗しました",
-                "message": "申し訳ございません。しばらく時間をおいてから再度お試しください。"
-            }
-
-        # レスポンスデータを取得
-        response_data = message_response.json()
-
-        # レスポンスがリストの場合（イベントの配列）
-        if isinstance(response_data, list):
-            events = response_data
-            # イベントからエージェントの応答を抽出
-            agent_messages = []
-            for event in events:
-                # content.parts[].textを抽出
-                if 'content' in event and 'parts' in event['content']:
-                    for part in event['content']['parts']:
-                        if 'text' in part:
-                            agent_messages.append(part['text'])
-                        # functionResponseからもテキストを抽出
-                        elif 'functionResponse' in part and 'response' in part['functionResponse']:
-                            response_data = part['functionResponse']['response']
-                            if 'result' in response_data:
-                                try:
-                                    result = json.loads(response_data['result'])
-                                    if 'message' in result:
-                                        agent_messages.append(result['message'])
-                                except:
-                                    pass
-
-            # 最新のエージェント応答を取得
-            agent_response = agent_messages[-1] if agent_messages else "申し訳ございません。応答を取得できませんでした。"
-
-            return {
-                "message": agent_response,
-                "user_profile": {},
-                "conversation_history": events,
-                "information_progress": {}
-            }
-        else:
-            # レスポンスが辞書の場合
-            events = response_data.get('events', [])
-            agent_messages = []
-
-            for event in events:
-                if event.get('type') == 'agent_response':
-                    agent_messages.append(event.get('text', ''))
-                elif 'text' in event:
-                    agent_messages.append(event['text'])
-
-            # 最新のエージェント応答を取得
-            agent_response = agent_messages[0] if agent_messages else "申し訳ございません。応答を取得できませんでした。"
-
-            # セッション状態からプロファイル情報を抽出
-            user_profile = response_data.get('user_profile', {})
-
-            return {
-                "message": agent_response,
-                "user_profile": user_profile,
-                "conversation_history": events,
-                "information_progress": {}
-            }
-
-    except requests.exceptions.Timeout as e:
-        print(f"[DEBUG] ADK Web UIタイムアウト: {e}")
-        print(f"[DEBUG] タイムアウト時間: 1000秒")
-        return {
-            "error": "エージェントサーバーとの通信がタイムアウトしました",
-            "message": "申し訳ございません。しばらく時間をおいてから再度お試しください。"
-        }
-    except requests.exceptions.RequestException as e:
-        print(f"[DEBUG] ADK Web UI通信エラー: {type(e).__name__}: {e}")
-        return {
-            "error": "エージェントサーバーとの通信に失敗しました",
-            "message": "申し訳ございません。しばらく時間をおいてから再度お試しください。"
-        }
-    except Exception as e:
-        print(f"[DEBUG] エージェント処理エラー: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
-        return {
-            "error": "エージェントとの通信に失敗しました",
-            "message": "申し訳ございません。しばらく時間をおいてから再度お試しください。"
-        }
+ 
 
 # 1. セッション新規作成
 @app.route('/api/sessions', methods=['POST'])
@@ -200,6 +82,12 @@ def create_session():
     # プロファイル初期化
     save_file(os.path.join(path, 'user_profile.json'), {})
     save_file(os.path.join(path, 'conversation_history.json'), [])
+
+    try:
+        run_async(hera_agent.start_session(session_id))
+    except Exception as e:
+        print(f"[WARN] start_session failed for {session_id}: {e}")
+
     return jsonify({
         'session_id': session_id,
         'created_at': str(uuid.uuid1().time),
@@ -213,52 +101,42 @@ def send_message(session_id):
     if not req or 'message' not in req:
         return jsonify({'error': 'messageフィールド必須'}), 400
 
-    # ✅ ADKセッションを先に作る/確認する
-    ok = ensure_adk_session(app_name="hera", user_id="user",
-                            session_id=session_id, base_url=ADK_BASE_URL)
-    if not ok:
-        return jsonify({'error': 'ADKセッションの作成/確認に失敗しました'}), 502
-
     user_message = req['message']
 
-    # HeraエージェントにHTTP通信でメッセージ送信
-    agent_response = call_hera_agent(session_id, user_message)
+    session_dir = session_path(session_id)
+    os.makedirs(session_dir, exist_ok=True)
+    os.makedirs(os.path.join(session_dir, 'photos'), exist_ok=True)
 
-    # エラーハンドリング
-    if 'error' in agent_response:
+    try:
+        raw_response = run_async(
+            hera_agent.run(
+                message=user_message,
+                session_id=session_id,
+            )
+        )
+        if isinstance(raw_response, str):
+            agent_response = json.loads(raw_response)
+        else:
+            agent_response = raw_response
+    except Exception as e:
+        print(f"[ERROR] Hera agent execution failed: {e}")
         return jsonify({
-            'error': agent_response['error'],
-            'reply': agent_response.get('message', 'エラーが発生しました')
+            'error': 'エージェント処理でエラーが発生しました',
+            'reply': '申し訳ございません。しばらく時間をおいてから再度お試しください。'
         }), 500
 
     # セッションデータの保存
-    session_dir = session_path(session_id)
-
-    profile_from_disk = load_file(os.path.join(session_dir, 'user_profile.json'), {}) or {}
-    profile_payload = agent_response.get('user_profile', {}) or {}
-    profile_data = profile_from_disk or profile_payload
-    profile_pruned = prune_empty_fields(profile_data)
-
-    history = load_file(os.path.join(session_dir, 'conversation_history.json'), []) or []
-    if not history:
-        history = [
-            {
-                "speaker": "user",
-                "message": user_message,
-                "timestamp": str(uuid.uuid1().time)
-            },
-            {
-                "speaker": "hera",
-                "message": agent_response.get('message', ''),
-                "timestamp": str(uuid.uuid1().time)
-            }
-        ]
-
+    profile_from_agent = agent_response.get('user_profile') or {}
+    profile_pruned = prune_empty_fields(profile_from_agent)
     save_file(os.path.join(session_dir, 'user_profile.json'), profile_pruned)
-    save_file(os.path.join(session_dir, 'conversation_history.json'), history)
 
-    information_progress = build_information_progress(profile_pruned)
-    missing_fields = compute_missing_fields(profile_pruned)
+    history = load_file(os.path.join(session_dir, 'conversation_history.json'), [])
+    if not history:
+        # fall back to in-memoryログ
+        history = hera_agent.conversation_history
+
+    information_progress = agent_response.get('information_progress') or build_information_progress(profile_pruned)
+    missing_fields = agent_response.get('missing_fields') or compute_missing_fields(profile_pruned)
 
     return jsonify({
         'reply': agent_response.get('message', ''),
@@ -266,7 +144,10 @@ def send_message(session_id):
         'user_profile': profile_pruned,
         'information_progress': information_progress,
         'missing_fields': missing_fields,
-        'profile_complete': len(missing_fields) == 0
+        'profile_complete': len(missing_fields) == 0,
+        'session_status': agent_response.get('session_status'),
+        'completion_message': agent_response.get('completion_message'),
+        'last_extracted_fields': agent_response.get('last_extracted_fields', {}),
     })
 
 # 3. 進捗・履歴・プロフィール取得
@@ -291,50 +172,32 @@ def get_status(session_id):
 # 4. セッション完了（必須情報充足/保存・family_agent転送準備）
 @app.route('/api/sessions/<session_id>/complete', methods=['POST'])
 def complete_session(session_id):
-    try:
-        # ADK Web UIの正しいエンドポイントを使用
-        # セッション確認
-        session_response = requests.get(
-            f"{ADK_BASE_URL}/apps/hera/users/user/sessions/{session_id}",
-            timeout=1000
-        )
+    session_dir = session_path(session_id)
+    profile = load_file(os.path.join(session_dir, 'user_profile.json'), {}) or {}
+    profile_pruned = prune_empty_fields(profile)
+    history = load_file(os.path.join(session_dir, 'conversation_history.json'), []) or []
 
-        if session_response.status_code not in [200, 201]:
-            print(f"セッション確認エラー: {session_response.status_code}")
+    progress = build_information_progress(profile_pruned)
+    missing_fields = compute_missing_fields(profile_pruned)
 
-        # 最新データを保存
-        session_dir = session_path(session_id)
-        profile = load_file(os.path.join(session_dir, 'user_profile.json'), {}) or {}
-        profile_pruned = prune_empty_fields(profile)
-        history = load_file(os.path.join(session_dir, 'conversation_history.json'), []) or []
-
-        save_file(os.path.join(session_dir, 'user_profile.json'), profile_pruned)
-
-        progress = build_information_progress(profile_pruned)
-        missing_fields = compute_missing_fields(profile_pruned)
-
-        if not profile_is_complete(profile_pruned):
-            return jsonify({
-                'error': '必須項目が未入力のため、完了できません。',
-                'user_profile': profile_pruned,
-                'conversation_history': history,
-                'information_progress': progress,
-                'missing_fields': missing_fields,
-                'information_complete': False
-            }), 400
-
+    if not profile_is_complete(profile_pruned):
         return jsonify({
-            'message': '収集が完了しました。ありがとうございました。',
+            'error': '必須項目が未入力のため、完了できません。',
             'user_profile': profile_pruned,
             'conversation_history': history,
             'information_progress': progress,
-            'missing_fields': [],
-            'information_complete': True
-        })
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': f'エージェントとの通信に失敗しました: {str(e)}'}), 500
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+            'missing_fields': missing_fields,
+            'information_complete': False
+        }), 400
+
+    return jsonify({
+        'message': '収集が完了しました。ありがとうございました。',
+        'user_profile': profile_pruned,
+        'conversation_history': history,
+        'information_progress': progress,
+        'missing_fields': [],
+        'information_complete': True
+    })
 
 # ヘルスチェック
 @app.route('/api/health', methods=['GET'])
