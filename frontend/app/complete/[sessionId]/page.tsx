@@ -63,13 +63,10 @@ export default function CompletePage() {
       // 成功メッセージを音声で再生
       speak('ありがとうございました。それでは、未来の家族との時間をお楽しみください。');
 
-      // 2秒後に結果画面へ遷移（将来実装）
+      // 家族との会話ページへ移動
       setTimeout(() => {
-        // router.push(`/result/${sessionId}`);
-        // 現時点では結果画面が未実装なので、ホームに戻る
-        alert('現在、結果表示画面を準備中です。ホームに戻ります。');
-        router.push('/');
-      }, 3000);
+        router.push(`/family/${sessionId}`);
+      }, 1500);
     } catch (err) {
       setError(
         err instanceof Error

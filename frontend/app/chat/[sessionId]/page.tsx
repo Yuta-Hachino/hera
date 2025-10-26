@@ -8,7 +8,7 @@ import NovelMessage from '@/components/NovelMessage';
 import ChatInput from '@/components/ChatInput';
 import ProfileProgress from '@/components/ProfileProgress';
 import LoadingSpinner from '@/components/LoadingSpinner';
-import { sendMessage, getSessionStatus } from '@/lib/api';
+import { sendMessage, getSessionStatus, completeSession } from '@/lib/api';
 import { ConversationMessage, InformationProgress } from '@/lib/types';
 
 export default function ChatPage() {
@@ -22,6 +22,7 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isCompleting, setIsCompleting] = useState(false);
   const [currentHeraText, setCurrentHeraText] = useState<string | undefined>();
   const [useNovelStyle, setUseNovelStyle] = useState(true); // ノベルゲームスタイルの切り替え
   const [lastMessageIndex, setLastMessageIndex] = useState(-1); // タイピング用
@@ -137,8 +138,21 @@ export default function ChatPage() {
     }
   };
 
-  const handleComplete = () => {
-    router.push(`/complete/${sessionId}`);
+  const handleComplete = async () => {
+    setIsCompleting(true);
+    setError(null);
+    try {
+      await completeSession(sessionId);
+      router.push(`/family/${sessionId}`);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : '完了処理に失敗しました。しばらくしてから再度お試しください'
+      );
+    } finally {
+      setIsCompleting(false);
+    }
   };
 
   if (isLoading) {
@@ -231,9 +245,10 @@ export default function ChatPage() {
           <div className="px-4 py-2 flex-shrink-0">
             <button
               onClick={handleComplete}
-              className="w-full bg-green-500 text-white font-semibold py-3 px-6 rounded-lg hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-300 transition-colors"
+              disabled={isCompleting}
+              className="w-full bg-green-500 text-white font-semibold py-3 px-6 rounded-lg hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-300 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              情報収集完了 - 次へ進む
+              {isCompleting ? '準備中...' : '情報収集完了 - 次へ進む'}
             </button>
           </div>
         )}
