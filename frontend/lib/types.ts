@@ -49,12 +49,15 @@ export type SessionResponse = {
 };
 
 export type MessageResponse = {
-  reply: string;
+  reply: string | ConversationMessage[];
   conversation_history: ConversationMessage[];
   user_profile: UserProfile;
   information_progress: InformationProgress;
   missing_fields: string[];
   profile_complete: boolean;
+  session_status?: string;
+  completion_message?: string | null;
+  last_extracted_fields?: Record<string, any>;
 };
 
 export type StatusResponse = {
@@ -72,5 +75,26 @@ export type CompleteResponse = {
   information_progress: InformationProgress;
   missing_fields: string[];
   information_complete: boolean;
+  error?: string;
+};
+
+export type FamilyMessage = {
+  speaker: string;
+  message: string;
+  timestamp?: string;
+};
+
+export type FamilyStatusResponse = {
+  conversation_history: ConversationMessage[];
+  family_trip_info: Record<string, any>;
+  conversation_complete: boolean;
+  error?: string;
+};
+
+export type FamilyMessageResponse = {
+  reply: FamilyMessage[];
+  conversation_history: ConversationMessage[];
+  family_trip_info: Record<string, any>;
+  conversation_complete: boolean;
   error?: string;
 };

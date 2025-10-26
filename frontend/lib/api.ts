@@ -3,6 +3,8 @@ import {
   MessageResponse,
   StatusResponse,
   CompleteResponse,
+  FamilyMessageResponse,
+  FamilyStatusResponse,
 } from './types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
@@ -75,6 +77,22 @@ export async function completeSession(
 ): Promise<CompleteResponse> {
   return fetchApi<CompleteResponse>(`/api/sessions/${sessionId}/complete`, {
     method: 'POST',
+  });
+}
+
+export async function getFamilyStatus(
+  sessionId: string
+): Promise<FamilyStatusResponse> {
+  return fetchApi<FamilyStatusResponse>(`/api/sessions/${sessionId}/family/status`);
+}
+
+export async function sendFamilyMessage(
+  sessionId: string,
+  message: string
+): Promise<FamilyMessageResponse> {
+  return fetchApi<FamilyMessageResponse>(`/api/sessions/${sessionId}/family/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ message }),
   });
 }
 

@@ -5,9 +5,10 @@ import { useState, KeyboardEvent } from 'react';
 type ChatInputProps = {
   onSend: (message: string) => void;
   disabled?: boolean;
+  placeholder?: string;
 };
 
-export default function ChatInput({ onSend, disabled }: ChatInputProps) {
+export default function ChatInput({ onSend, disabled, placeholder }: ChatInputProps) {
   const [message, setMessage] = useState('');
 
   const handleSend = () => {
@@ -31,7 +32,7 @@ export default function ChatInput({ onSend, disabled }: ChatInputProps) {
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="メッセージを入力してください..."
+          placeholder={placeholder || 'メッセージを入力してください...'}
           disabled={disabled}
           rows={3}
           className="flex-1 resize-none rounded-lg border border-gray-300 px-4 py-2 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 disabled:bg-gray-100 disabled:cursor-not-allowed bg-white bg-opacity-60 backdrop-blur-sm"

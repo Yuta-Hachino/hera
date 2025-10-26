@@ -3,6 +3,9 @@ import uuid
 import json
 import asyncio
 import threading
+from types import SimpleNamespace
+from typing import Any, Dict, List, Optional
+from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -18,6 +21,8 @@ from agents.hera.profile_validation import (
     profile_is_complete,
     prune_empty_fields,
 )
+from agents.family.persona_generator import PersonaGenerator
+from agents.family.tooling import FamilyToolSet
 
 load_dotenv()
 
@@ -69,6 +74,134 @@ def save_file(path: str, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+class FamilyConversationSession:
+    """家族エージェントとの対話状態を管理"""
+
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        self.toolset: Optional[FamilyToolSet] = None
+        self.personas = []
+        self.initialized = False
+        self.state: Dict[str, Any] = {
+            "family_conversation_log": [],
+            "family_trip_info": {},
+            "family_plan_prompted": False,
+            "family_plan_confirmed": False,
+            "family_conversation_complete": False,
+        }
+        self.context = SimpleNamespace(state=self.state)
+        self._load_cached_state()
+
+    def _load_cached_state(self) -> None:
+        """既存の会話ログや旅行情報があれば読み込む"""
+        session_dir = session_path(self.session_id)
+        conversation_path = os.path.join(session_dir, 'family_conversation.json')
+        trip_path = os.path.join(session_dir, 'family_trip_info.json')
+
+        cached_log = load_file(conversation_path, [])
+        if isinstance(cached_log, list):
+            self.state["family_conversation_log"] = cached_log
+
+        cached_trip = load_file(trip_path, {})
+        if isinstance(cached_trip, dict):
+            self.state["family_trip_info"] = cached_trip
+
+    async def initialize(self) -> None:
+        """ペルソナ生成とツールセット初期化"""
+        if self.initialized:
+            return
+
+        profile = load_file(
+            os.path.join(session_path(self.session_id), 'user_profile.json'),
+            {}
+        )
+        if not profile:
+            raise ValueError("ユーザープロファイルが見つからないため、家族会話を開始できません。")
+
+        generator = PersonaGenerator()
+        generated = await generator.generate_personas(profile)
+        self.personas = generator.build_persona_objects(generated)
+        self.toolset = FamilyToolSet(self.personas)
+        self.initialized = True
+
+    async def send_message(self, user_message: str) -> List[Dict[str, Any]]:
+        """ユーザーメッセージに対して家族メンバーの発話を生成"""
+        await self.initialize()
+
+        log = self.state.setdefault("family_conversation_log", [])
+        log.append({
+            "speaker": "user",
+            "message": user_message,
+            "timestamp": datetime.now().isoformat()
+        })
+
+        responses: List[Dict[str, Any]] = []
+        if not self.toolset:
+            return responses
+
+        for family_tool in self.toolset.tools:
+            try:
+                result = await family_tool.tool.func(
+                    tool_context=self.context,
+                    input_text=user_message,
+                )
+                if result and result.get("message"):
+                    response_timestamp = datetime.now().isoformat()
+                    # ツール側で追加された最新ログにタイムスタンプを付与
+                    if self.state.get("family_conversation_log"):
+                        self.state["family_conversation_log"][-1]["timestamp"] = response_timestamp
+                    responses.append({
+                        "speaker": result.get("speaker", family_tool.persona.role),
+                        "message": result["message"],
+                        "timestamp": response_timestamp,
+                    })
+            except Exception as tool_error:
+                fallback_message = (
+                    "ごめんなさい、少し調子が悪いみたい。また後で話そうね。"
+                    f"（詳細: {tool_error}）"
+                )
+                error_entry = {
+                    "speaker": family_tool.persona.role,
+                    "message": fallback_message,
+                    "timestamp": datetime.now().isoformat(),
+                }
+                responses.append(error_entry)
+                log.append(error_entry)
+
+        return responses
+
+    def persist(self) -> None:
+        """セッション状態をディスクに保存"""
+        session_dir = session_path(self.session_id)
+        os.makedirs(session_dir, exist_ok=True)
+        save_file(
+            os.path.join(session_dir, 'family_conversation.json'),
+            self.state.get("family_conversation_log", []),
+        )
+        save_file(
+            os.path.join(session_dir, 'family_trip_info.json'),
+            self.state.get("family_trip_info", {}),
+        )
+
+    def status(self) -> Dict[str, Any]:
+        return {
+            "conversation_history": self.state.get("family_conversation_log", []),
+            "family_trip_info": self.state.get("family_trip_info", {}),
+            "conversation_complete": bool(self.state.get("family_conversation_complete")),
+        }
+
+
+FAMILY_SESSIONS: Dict[str, FamilyConversationSession] = {}
+
+
+def get_family_session(session_id: str) -> FamilyConversationSession:
+    session = FAMILY_SESSIONS.get(session_id)
+    if session is None:
+        session = FamilyConversationSession(session_id)
+        FAMILY_SESSIONS[session_id] = session
+    return session
 
  
 
@@ -190,6 +323,13 @@ def complete_session(session_id):
             'information_complete': False
         }), 400
 
+    # 家族エージェントの準備を先行実行（ペルソナ生成など）
+    try:
+        family_session = get_family_session(session_id)
+        run_async(family_session.initialize())
+    except Exception as e:
+        print(f"[WARN] 家族エージェント初期化に失敗しました: {e}")
+
     return jsonify({
         'message': '収集が完了しました。ありがとうございました。',
         'user_profile': profile_pruned,
@@ -198,6 +338,38 @@ def complete_session(session_id):
         'missing_fields': [],
         'information_complete': True
     })
+
+
+# --- 家族エージェント連携API ---
+@app.route('/api/sessions/<session_id>/family/status', methods=['GET'])
+def get_family_status_api(session_id):
+    try:
+        session = get_family_session(session_id)
+        return jsonify(session.status())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/sessions/<session_id>/family/messages', methods=['POST'])
+def send_family_message(session_id):
+    req = request.get_json() or {}
+    user_message = req.get('message')
+    if not user_message:
+        return jsonify({'error': 'messageフィールド必須'}), 400
+
+    session = get_family_session(session_id)
+    try:
+        replies = run_async(session.send_message(user_message))
+        session.persist()
+        status = session.status()
+        return jsonify({
+            'reply': replies,
+            'conversation_history': status['conversation_history'],
+            'family_trip_info': status['family_trip_info'],
+            'conversation_complete': status['conversation_complete'],
+        })
+    except Exception as e:
+        return jsonify({'error': f'家族エージェントとの会話に失敗しました: {e}'}), 500
 
 # ヘルスチェック
 @app.route('/api/health', methods=['GET'])
