@@ -22,6 +22,7 @@ export default function FamilyConversationPage() {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [tripInfo, setTripInfo] = useState<Record<string, any>>({});
   const [isConversationComplete, setConversationComplete] = useState(false);
+  const [familyPlan, setFamilyPlan] = useState<Record<string, any> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +45,7 @@ export default function FamilyConversationPage() {
         setMessages(mapped);
         setTripInfo(status.family_trip_info || {});
         setConversationComplete(status.conversation_complete || false);
+        setFamilyPlan(status.family_plan || null);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : '家族との会話履歴の取得に失敗しました'
@@ -80,7 +82,7 @@ export default function FamilyConversationPage() {
       const mappedReplies: ConversationMessage[] = replies.map((reply) => ({
         speaker: reply.speaker || 'family',
         message: reply.message || '',
-        timestamp: new Date().toISOString(),
+        timestamp: reply.timestamp || new Date().toISOString(),
       }));
 
       setMessages((prev) => [...prev, ...mappedReplies]);
@@ -91,6 +93,7 @@ export default function FamilyConversationPage() {
 
       setTripInfo(response.family_trip_info || {});
       setConversationComplete(response.conversation_complete || false);
+      setFamilyPlan(response.family_plan || null);
     } catch (err) {
       setError(
         err instanceof Error
@@ -182,6 +185,15 @@ export default function FamilyConversationPage() {
             </p>
           </div>
         </div>
+
+        {familyPlan?.letter && (
+          <div className="mx-4 my-3 rounded-lg bg-white/90 border border-amber-200 p-4 shadow-sm">
+            <h2 className="text-sm font-semibold text-amber-700 mb-2">未来の家族からの手紙</h2>
+            <p className="text-sm text-gray-700 whitespace-pre-line leading-relaxed">
+              {familyPlan.letter}
+            </p>
+          </div>
+        )}
 
         <div className="p-4 flex-shrink-0 space-y-2">
           {isConversationComplete && (
