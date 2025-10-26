@@ -72,16 +72,58 @@ export default function ChatPage() {
     try {
       const response = await sendMessage(sessionId, message);
 
-      // Heraの応答を表示
-      const heraMessage: ConversationMessage = {
-        speaker: 'hera',
-        message: response.reply,
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, heraMessage]);
+      // 家族エージェントの応答を処理
+      if (response.reply && typeof response.reply === 'string') {
+        // 文字列の場合、JSONとしてパースを試行
+        try {
+          const parsedReply = JSON.parse(response.reply);
+          if (Array.isArray(parsedReply)) {
+            // パース成功: 家族エージェントの配列応答
+            const familyMessages: ConversationMessage[] = parsedReply.map((msg: any) => ({
+              speaker: msg.speaker,
+              message: msg.message,
+              timestamp: new Date().toISOString(),
+            }));
+            setMessages((prev) => [...prev, ...familyMessages]);
 
-      // 音声で応答を再生（リップシンク）
-      setCurrentHeraText(response.reply);
+            // 最初のメッセージをTTS用に設定
+            if (familyMessages.length > 0) {
+              setCurrentHeraText(familyMessages[0].message);
+            }
+          } else {
+            // パース成功だが配列ではない: 通常のヘーラーメッセージ
+            const heraMessage: ConversationMessage = {
+              speaker: 'hera',
+              message: response.reply,
+              timestamp: new Date().toISOString(),
+            };
+            setMessages((prev) => [...prev, heraMessage]);
+            setCurrentHeraText(response.reply);
+          }
+        } catch (error) {
+          // パース失敗: 通常のヘーラーメッセージとして処理
+          const heraMessage: ConversationMessage = {
+            speaker: 'hera',
+            message: response.reply,
+            timestamp: new Date().toISOString(),
+          };
+          setMessages((prev) => [...prev, heraMessage]);
+          setCurrentHeraText(response.reply);
+        }
+      } else if (Array.isArray(response.reply)) {
+        // 既に配列形式の場合
+        const familyMessages: ConversationMessage[] = response.reply.map((msg: any) => ({
+          speaker: msg.speaker,
+          message: msg.message,
+          timestamp: new Date().toISOString(),
+        }));
+        setMessages((prev) => [...prev, ...familyMessages]);
+
+        // 最初のメッセージをTTS用に設定
+        if (familyMessages.length > 0) {
+          setCurrentHeraText(familyMessages[0].message);
+        }
+      }
 
       // 進捗と完了状態を更新
       setProgress(response.information_progress || {});
