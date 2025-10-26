@@ -23,6 +23,8 @@ from agents.hera.profile_validation import (
 )
 from agents.family.persona_generator import PersonaGenerator
 from agents.family.tooling import FamilyToolSet
+from agents.family.story_generator import StoryGenerator
+from agents.family.letter_generator import LetterGenerator
 
 load_dotenv()
 
@@ -84,12 +86,15 @@ class FamilyConversationSession:
         self.toolset: Optional[FamilyToolSet] = None
         self.personas = []
         self.initialized = False
+        self.user_profile: Dict[str, Any] = {}
         self.state: Dict[str, Any] = {
             "family_conversation_log": [],
             "family_trip_info": {},
             "family_plan_prompted": False,
             "family_plan_confirmed": False,
             "family_conversation_complete": False,
+            "family_plan_data": None,
+            "family_plan_generated": False,
         }
         self.context = SimpleNamespace(state=self.state)
         self._load_cached_state()
@@ -99,6 +104,7 @@ class FamilyConversationSession:
         session_dir = session_path(self.session_id)
         conversation_path = os.path.join(session_dir, 'family_conversation.json')
         trip_path = os.path.join(session_dir, 'family_trip_info.json')
+        plan_path = os.path.join(session_dir, 'family_plan.json')
 
         cached_log = load_file(conversation_path, [])
         if isinstance(cached_log, list):
@@ -107,6 +113,12 @@ class FamilyConversationSession:
         cached_trip = load_file(trip_path, {})
         if isinstance(cached_trip, dict):
             self.state["family_trip_info"] = cached_trip
+
+        cached_plan = load_file(plan_path, None)
+        if isinstance(cached_plan, dict):
+            self.state["family_plan_data"] = cached_plan
+            self.state["family_plan_generated"] = True
+            self.state["family_conversation_complete"] = True
 
     async def initialize(self) -> None:
         """ペルソナ生成とツールセット初期化"""
@@ -119,6 +131,7 @@ class FamilyConversationSession:
         )
         if not profile:
             raise ValueError("ユーザープロファイルが見つからないため、家族会話を開始できません。")
+        self.user_profile = profile
 
         generator = PersonaGenerator()
         generated = await generator.generate_personas(profile)
@@ -170,6 +183,8 @@ class FamilyConversationSession:
                 responses.append(error_entry)
                 log.append(error_entry)
 
+        await self._maybe_finalize_plan()
+
         return responses
 
     def persist(self) -> None:
@@ -184,13 +199,108 @@ class FamilyConversationSession:
             os.path.join(session_dir, 'family_trip_info.json'),
             self.state.get("family_trip_info", {}),
         )
+        if self.state.get("family_plan_data"):
+            save_file(
+                os.path.join(session_dir, 'family_plan.json'),
+                self.state["family_plan_data"],
+            )
 
     def status(self) -> Dict[str, Any]:
         return {
             "conversation_history": self.state.get("family_conversation_log", []),
             "family_trip_info": self.state.get("family_trip_info", {}),
             "conversation_complete": bool(self.state.get("family_conversation_complete")),
+            "family_plan": self.state.get("family_plan_data"),
         }
+
+    async def _maybe_finalize_plan(self) -> None:
+        """旅行計画が確定したタイミングでストーリーと手紙を生成"""
+        if self.state.get("family_plan_generated"):
+            return
+        if not self.state.get("family_plan_confirmed"):
+            return
+
+        trip_info = self.state.get("family_trip_info") or {}
+        destination = trip_info.get("destination")
+        activities = trip_info.get("activities", [])
+        if not destination or not activities:
+            return
+
+        plan_data = await self._generate_family_plan(trip_info)
+        if plan_data:
+            self.state["family_plan_data"] = plan_data
+            self.state["family_plan_generated"] = True
+            self.state["family_conversation_complete"] = True
+            self.persist()
+
+    async def _generate_family_plan(self, trip_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """ストーリーと手紙を生成して保存"""
+        conversation_log = self.state.get("family_conversation_log", [])
+        personas = self.toolset.get_personas() if self.toolset else self.personas
+        if not personas:
+            return None
+
+        try:
+            story_generator = StoryGenerator()
+            story = await story_generator.generate_story(
+                conversation_log=conversation_log,
+                trip_info=trip_info,
+                personas=personas,
+            )
+        except Exception as e:
+            print(f"[WARN] family story generation failed: {e}")
+            story = self._generate_fallback_summary(
+                conversation_log,
+                trip_info.get("destination"),
+                trip_info.get("activities", []),
+            )
+
+        try:
+            letter_generator = LetterGenerator()
+            user_name = self.user_profile.get("name") if isinstance(self.user_profile, dict) else None
+            letter = await letter_generator.generate_letter(
+                story=story,
+                trip_info=trip_info,
+                family_members=personas,
+                user_name=user_name,
+            )
+        except Exception as e:
+            print(f"[WARN] family letter generation failed: {e}")
+            letter = ""
+
+        plan_data = {
+            "destination": trip_info.get("destination"),
+            "activities": trip_info.get("activities", []),
+            "story": story,
+            "letter": letter,
+            "conversation_log": conversation_log,
+        }
+        return plan_data
+
+    def _generate_fallback_summary(
+        self,
+        conversation_log: List[Dict[str, Any]],
+        destination: Optional[str],
+        activities: List[str],
+    ) -> str:
+        activities_text = "、".join(activities) if activities else "楽しい時間"
+        intro = destination or "ワクワクする場所"
+        summary_lines = [
+            f"家族みんなで{intro}に向かう計画がまとまりました。",
+            "対話の中では、未来のパートナーや子どもたちが期待に胸を膨らませながら、",
+            "旅行中にやりたいことや、互いへの気遣いをたくさん語ってくれました。",
+            f"特に「{activities_text}」を一緒に楽しみたいという想いが強く表れています。",
+            "",
+            "家族で過ごすひとときが、きっと温かく忘れられない思い出になるでしょう。",
+        ]
+        if conversation_log:
+            summary_lines.append("")
+            summary_lines.append("【会話のハイライト】")
+            for item in conversation_log[-3:]:
+                speaker = item.get("speaker", "家族")
+                message = item.get("message", "")
+                summary_lines.append(f"{speaker}: {message}")
+        return "\n".join(summary_lines)
 
 
 FAMILY_SESSIONS: Dict[str, FamilyConversationSession] = {}
@@ -345,6 +455,8 @@ def complete_session(session_id):
 def get_family_status_api(session_id):
     try:
         session = get_family_session(session_id)
+        run_async(session._maybe_finalize_plan())
+        session.persist()
         return jsonify(session.status())
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -367,6 +479,7 @@ def send_family_message(session_id):
             'conversation_history': status['conversation_history'],
             'family_trip_info': status['family_trip_info'],
             'conversation_complete': status['conversation_complete'],
+            'family_plan': status.get('family_plan'),
         })
     except Exception as e:
         return jsonify({'error': f'家族エージェントとの会話に失敗しました: {e}'}), 500
