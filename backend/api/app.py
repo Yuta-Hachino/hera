@@ -25,8 +25,22 @@ from agents.family.persona_generator import PersonaGenerator
 from agents.family.tooling import FamilyToolSet
 from agents.family.story_generator import StoryGenerator
 from agents.family.letter_generator import LetterGenerator
+from utils.logger import setup_logger
+from utils.env_validator import validate_env
 
+# 環境変数を読み込み
 load_dotenv()
+
+# 環境変数の検証
+try:
+    validate_env()
+except Exception as e:
+    print(f"\n{e}\n")
+    sys.exit(1)
+
+# ロガーの設定
+logger = setup_logger(__name__, log_file='logs/app.log')
+logger.info("アプリケーション起動")
 
 # Heraエージェントを直接初期化し、非同期ループを常駐させる
 hera_agent = ADKHeraAgent(
@@ -54,7 +68,11 @@ def run_async(coro):
 
 # Flaskアプリ
 app = Flask(__name__)
-CORS(app)
+
+# CORS設定（環境変数で許可オリジンを制御）
+allowed_origins = os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
+CORS(app, origins=allowed_origins, supports_credentials=True)
+logger.info(f"CORS許可オリジン: {allowed_origins}")
 
 # セッションディレクトリ
 SESSIONS_DIR = get_sessions_dir()
@@ -560,4 +578,7 @@ def generate_child_image(session_id):
     return jsonify({'status': 'success', 'image_url': f'/api/sessions/{session_id}/photos/child_1.png', 'meta': {'target': 'child', 'child_ver': 1}})
 
 if __name__ == "__main__":
-    app.run(debug=True, port=8080)
+    # 環境変数でデバッグモードを制御（本番環境では無効化）
+    debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
+    port = int(os.getenv('PORT', '8080'))
+    app.run(debug=debug_mode, port=port, host='0.0.0.0')
