@@ -15,11 +15,13 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - FLASK_DEBUG=False
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - REDIS_URL=redis://redis:6379/0
+      - STORAGE_MODE=redis
       - SESSIONS_DIR=/app/tmp/user_sessions
       - ALLOWED_ORIGINS=http://localhost:3000,http://frontend:3000
       - PORT=8080
     volumes:
-      # セッションデータの永続化
+      # セッションデータの永続化（画像用）
       - backend-sessions:/app/tmp/user_sessions
       # ログの永続化
       - backend-logs:/app/logs
@@ -27,6 +29,8 @@ services:
       - ./backend:/app:ro
     networks:
       - hera-network
+    depends_on:
+      - redis
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
       interval: 30s
@@ -47,10 +51,12 @@ services:
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - PYTHONPATH=/app
+      - REDIS_URL=redis://redis:6379/0
+      - STORAGE_MODE=redis
       - SESSIONS_DIR=/app/tmp/user_sessions
     volumes:
       - ./backend:/app
-      # backendと同じセッションボリュームを共有
+      # backendと同じセッションボリュームを共有（画像用）
       - backend-sessions:/app/tmp/user_sessions
       # ログも共有（オプション）
       - backend-logs:/app/logs
@@ -70,6 +76,27 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+      - redis
+
+  # ============================================
+  # Redis (セッション管理)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: hera-redis-local
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - hera-network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
 
   # ============================================
   # フロントエンド (Next.js)
@@ -100,6 +127,8 @@ volumes:
   backend-sessions:
     driver: local
   backend-logs:
+    driver: local
+  redis-data:
     driver: local
 
 # ============================================

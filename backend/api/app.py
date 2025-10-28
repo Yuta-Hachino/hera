@@ -27,6 +27,8 @@ from agents.family.story_generator import StoryGenerator
 from agents.family.letter_generator import LetterGenerator
 from utils.logger import setup_logger
 from utils.env_validator import validate_env
+from utils.session_manager import get_session_manager, SessionManager
+from utils.storage_manager import create_storage_manager, StorageManager
 
 # 環境変数を読み込み
 load_dotenv()
@@ -74,26 +76,74 @@ allowed_origins = os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000').split(',
 CORS(app, origins=allowed_origins, supports_credentials=True)
 logger.info(f"CORS許可オリジン: {allowed_origins}")
 
-# セッションディレクトリ
+# セッションディレクトリ（画像保存用に残す）
 SESSIONS_DIR = get_sessions_dir()
 os.makedirs(SESSIONS_DIR, exist_ok=True)
+
+# セッション管理とストレージ管理の初期化
+try:
+    session_mgr: SessionManager = get_session_manager()
+    storage_mgr: StorageManager = create_storage_manager()
+    storage_mode = os.getenv('STORAGE_MODE', 'local').lower()
+    logger.info(f"セッション管理初期化完了: {type(session_mgr).__name__}")
+    logger.info(f"ストレージ管理初期化完了: {type(storage_mgr).__name__} (mode={storage_mode})")
+except Exception as e:
+    logger.error(f"マネージャー初期化エラー: {e}")
+    raise
 
 # Utility関数
 
 def session_path(session_id: str) -> str:
+    """画像保存用のパス取得（後方互換性のため残す）"""
     return os.path.join(SESSIONS_DIR, session_id)
 
 def load_file(path: str, default=None):
+    """ファイルベースのデータ読み込み（後方互換性のため残す）"""
     if os.path.exists(path):
         with open(path, encoding='utf-8') as f:
             return json.load(f)
     return default
 
 def save_file(path: str, data):
+    """ファイルベースのデータ保存（後方互換性のため残す）"""
     # ディレクトリが存在しない場合は作成
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+# 新しいセッション管理関数
+def save_session_data(session_id: str, key: str, data: Any) -> None:
+    """セッションデータを保存（Redis/File自動切り替え）"""
+    try:
+        # session_mgrはDict形式を期待しているので、keyをディクショナリに包む
+        session_mgr.save(session_id, {key: data})
+        logger.debug(f"セッションデータ保存: {session_id}/{key}")
+    except Exception as e:
+        logger.error(f"セッションデータ保存エラー: {session_id}/{key} - {e}")
+        raise
+
+
+def load_session_data(session_id: str, key: str, default: Any = None) -> Any:
+    """セッションデータを読み込み（Redis/File自動切り替え）"""
+    try:
+        data = session_mgr.load(session_id)
+        if data and key in data:
+            logger.debug(f"セッションデータ読み込み: {session_id}/{key}")
+            return data[key]
+        return default
+    except Exception as e:
+        logger.error(f"セッションデータ読み込みエラー: {session_id}/{key} - {e}")
+        return default
+
+
+def session_exists(session_id: str) -> bool:
+    """セッションが存在するか確認"""
+    try:
+        return session_mgr.exists(session_id)
+    except Exception as e:
+        logger.error(f"セッション存在確認エラー: {session_id} - {e}")
+        return False
 
 
 class FamilyConversationSession:
@@ -118,35 +168,27 @@ class FamilyConversationSession:
         self._load_cached_state()
 
     def _load_cached_state(self) -> None:
-        """既存の会話ログや旅行情報があれば読み込む"""
-        session_dir = session_path(self.session_id)
-        conversation_path = os.path.join(session_dir, 'family_conversation.json')
-        trip_path = os.path.join(session_dir, 'family_trip_info.json')
-        plan_path = os.path.join(session_dir, 'family_plan.json')
-
-        cached_log = load_file(conversation_path, [])
+        """既存の会話ログや旅行情報があれば読み込む（session_mgr使用）"""
+        cached_log = load_session_data(self.session_id, 'family_conversation', [])
         if isinstance(cached_log, list):
             self.state["family_conversation_log"] = cached_log
 
-        cached_trip = load_file(trip_path, {})
+        cached_trip = load_session_data(self.session_id, 'family_trip_info', {})
         if isinstance(cached_trip, dict):
             self.state["family_trip_info"] = cached_trip
 
-        cached_plan = load_file(plan_path, None)
+        cached_plan = load_session_data(self.session_id, 'family_plan', None)
         if isinstance(cached_plan, dict):
             self.state["family_plan_data"] = cached_plan
             self.state["family_plan_generated"] = True
             self.state["family_conversation_complete"] = True
 
     async def initialize(self) -> None:
-        """ペルソナ生成とツールセット初期化"""
+        """ペルソナ生成とツールセット初期化（session_mgr使用）"""
         if self.initialized:
             return
 
-        profile = load_file(
-            os.path.join(session_path(self.session_id), 'user_profile.json'),
-            {}
-        )
+        profile = load_session_data(self.session_id, 'user_profile', {})
         if not profile:
             raise ValueError("ユーザープロファイルが見つからないため、家族会話を開始できません。")
         self.user_profile = profile
@@ -206,21 +248,22 @@ class FamilyConversationSession:
         return responses
 
     def persist(self) -> None:
-        """セッション状態をディスクに保存"""
-        session_dir = session_path(self.session_id)
-        os.makedirs(session_dir, exist_ok=True)
-        save_file(
-            os.path.join(session_dir, 'family_conversation.json'),
-            self.state.get("family_conversation_log", []),
+        """セッション状態を保存（session_mgr使用）"""
+        save_session_data(
+            self.session_id,
+            'family_conversation',
+            self.state.get("family_conversation_log", [])
         )
-        save_file(
-            os.path.join(session_dir, 'family_trip_info.json'),
-            self.state.get("family_trip_info", {}),
+        save_session_data(
+            self.session_id,
+            'family_trip_info',
+            self.state.get("family_trip_info", {})
         )
         if self.state.get("family_plan_data"):
-            save_file(
-                os.path.join(session_dir, 'family_plan.json'),
-                self.state["family_plan_data"],
+            save_session_data(
+                self.session_id,
+                'family_plan',
+                self.state["family_plan_data"]
             )
 
     def status(self) -> Dict[str, Any]:
@@ -337,21 +380,30 @@ def get_family_session(session_id: str) -> FamilyConversationSession:
 @app.route('/api/sessions', methods=['POST'])
 def create_session():
     session_id = str(uuid.uuid4())
+
+    # セッション初期化（session_mgr使用）
+    try:
+        save_session_data(session_id, 'user_profile', {})
+        save_session_data(session_id, 'conversation_history', [])
+        save_session_data(session_id, 'created_at', datetime.now().isoformat())
+        logger.info(f"セッション作成: {session_id}")
+    except Exception as e:
+        logger.error(f"セッション作成エラー: {session_id} - {e}")
+        return jsonify({'error': 'セッション作成に失敗しました'}), 500
+
+    # 画像保存用ディレクトリ作成（ローカルファイルシステム用）
     path = session_path(session_id)
     os.makedirs(path, exist_ok=True)
     os.makedirs(os.path.join(path, 'photos'), exist_ok=True)
-    # プロファイル初期化
-    save_file(os.path.join(path, 'user_profile.json'), {})
-    save_file(os.path.join(path, 'conversation_history.json'), [])
 
     try:
         run_async(hera_agent.start_session(session_id))
     except Exception as e:
-        print(f"[WARN] start_session failed for {session_id}: {e}")
+        logger.warning(f"start_session failed for {session_id}: {e}")
 
     return jsonify({
         'session_id': session_id,
-        'created_at': str(uuid.uuid1().time),
+        'created_at': datetime.now().isoformat(),
         'status': 'created'
     })
 
@@ -364,6 +416,12 @@ def send_message(session_id):
 
     user_message = req['message']
 
+    # セッション存在確認
+    if not session_exists(session_id):
+        logger.warning(f"存在しないセッション: {session_id}")
+        return jsonify({'error': 'セッションが存在しません'}), 404
+
+    # 画像保存用ディレクトリ作成（必要に応じて）
     session_dir = session_path(session_id)
     os.makedirs(session_dir, exist_ok=True)
     os.makedirs(os.path.join(session_dir, 'photos'), exist_ok=True)
@@ -380,18 +438,18 @@ def send_message(session_id):
         else:
             agent_response = raw_response
     except Exception as e:
-        print(f"[ERROR] Hera agent execution failed: {e}")
+        logger.error(f"Hera agent execution failed: {e}")
         return jsonify({
             'error': 'エージェント処理でエラーが発生しました',
             'reply': '申し訳ございません。しばらく時間をおいてから再度お試しください。'
         }), 500
 
-    # セッションデータの保存
+    # セッションデータの保存（session_mgr使用）
     profile_from_agent = agent_response.get('user_profile') or {}
     profile_pruned = prune_empty_fields(profile_from_agent)
-    save_file(os.path.join(session_dir, 'user_profile.json'), profile_pruned)
+    save_session_data(session_id, 'user_profile', profile_pruned)
 
-    history = load_file(os.path.join(session_dir, 'conversation_history.json'), [])
+    history = load_session_data(session_id, 'conversation_history', [])
     if not history:
         # fall back to in-memoryログ
         history = hera_agent.conversation_history
@@ -414,10 +472,15 @@ def send_message(session_id):
 # 3. 進捗・履歴・プロフィール取得
 @app.route('/api/sessions/<session_id>/status', methods=['GET'])
 def get_status(session_id):
-    session_dir = session_path(session_id)
-    profile = load_file(os.path.join(session_dir, 'user_profile.json'), {}) or {}
+    # セッション存在確認
+    if not session_exists(session_id):
+        logger.warning(f"存在しないセッション: {session_id}")
+        return jsonify({'error': 'セッションが存在しません'}), 404
+
+    # session_mgrからデータ取得
+    profile = load_session_data(session_id, 'user_profile', {}) or {}
     profile_pruned = prune_empty_fields(profile)
-    history = load_file(os.path.join(session_dir, 'conversation_history.json'), []) or []
+    history = load_session_data(session_id, 'conversation_history', []) or []
 
     progress = build_information_progress(profile_pruned)
     missing_fields = compute_missing_fields(profile_pruned)
@@ -433,10 +496,15 @@ def get_status(session_id):
 # 4. セッション完了（必須情報充足/保存・family_agent転送準備）
 @app.route('/api/sessions/<session_id>/complete', methods=['POST'])
 def complete_session(session_id):
-    session_dir = session_path(session_id)
-    profile = load_file(os.path.join(session_dir, 'user_profile.json'), {}) or {}
+    # セッション存在確認
+    if not session_exists(session_id):
+        logger.warning(f"存在しないセッション: {session_id}")
+        return jsonify({'error': 'セッションが存在しません'}), 404
+
+    # session_mgrからデータ取得
+    profile = load_session_data(session_id, 'user_profile', {}) or {}
     profile_pruned = prune_empty_fields(profile)
-    history = load_file(os.path.join(session_dir, 'conversation_history.json'), []) or []
+    history = load_session_data(session_id, 'conversation_history', []) or []
 
     progress = build_information_progress(profile_pruned)
     missing_fields = compute_missing_fields(profile_pruned)
@@ -455,8 +523,9 @@ def complete_session(session_id):
     try:
         family_session = get_family_session(session_id)
         run_async(family_session.initialize())
+        logger.info(f"家族エージェント初期化完了: {session_id}")
     except Exception as e:
-        print(f"[WARN] 家族エージェント初期化に失敗しました: {e}")
+        logger.warning(f"家族エージェント初期化に失敗しました: {e}")
 
     return jsonify({
         'message': '収集が完了しました。ありがとうございました。',
@@ -513,39 +582,87 @@ UPLOAD_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
 # 1. ユーザー画像アップロード
 @app.route('/api/sessions/<session_id>/photos/user', methods=['POST'])
 def upload_user_photo(session_id):
+    # セッション存在確認
+    if not session_exists(session_id):
+        logger.warning(f"存在しないセッション: {session_id}")
+        return jsonify({'status': 'error', 'error': 'セッションが存在しません'}), 404
+
     if 'file' not in request.files:
         return jsonify({'status': 'error', 'error': '画像ファイルがありません'}), 400
+
     file = request.files['file']
     filename = secure_filename(file.filename)
     ext = os.path.splitext(filename)[1].lower()
     if ext not in UPLOAD_EXTENSIONS:
         return jsonify({'status': 'error', 'error': '対応形式: jpg, jpeg, png'}), 400
-    dest_dir = os.path.join(session_path(session_id), 'photos')
-    os.makedirs(dest_dir, exist_ok=True)
-    dest_path = os.path.join(dest_dir, 'user.png')
-    file.save(dest_path)
-    return jsonify({'status': 'success', 'image_url': f'/api/sessions/{session_id}/photos/user.png'})
+
+    try:
+        # 画像データ読み込み
+        file_data = file.read()
+
+        # storage_mgrで保存（ローカル/クラウド自動切り替え）
+        image_url = storage_mgr.save_file(session_id, 'photos/user.png', file_data)
+        logger.info(f"画像アップロード成功: {session_id}/photos/user.png")
+
+        return jsonify({
+            'status': 'success',
+            'image_url': image_url
+        })
+    except Exception as e:
+        logger.error(f"画像アップロードエラー: {session_id} - {e}")
+        return jsonify({'status': 'error', 'error': '画像の保存に失敗しました'}), 500
 
 # 画像ファイル取得（静的配信用途）
 @app.route('/api/sessions/<session_id>/photos/<filename>')
 def get_photo(session_id, filename):
-    dirpath = os.path.join(session_path(session_id), 'photos')
-    return send_from_directory(dirpath, filename)
+    # セッション存在確認
+    if not session_exists(session_id):
+        logger.warning(f"存在しないセッション: {session_id}")
+        return jsonify({'error': 'セッションが存在しません'}), 404
+
+    try:
+        # storage_mgrから画像データ取得
+        file_data = storage_mgr.load_file(session_id, f'photos/{filename}')
+
+        if file_data is None:
+            logger.warning(f"画像が見つかりません: {session_id}/photos/{filename}")
+            return jsonify({'error': '画像が見つかりません'}), 404
+
+        # Content-Typeを推測
+        import mimetypes
+        content_type, _ = mimetypes.guess_type(filename)
+        if content_type is None:
+            content_type = 'application/octet-stream'
+
+        # バイナリデータをレスポンス
+        from flask import Response
+        return Response(file_data, mimetype=content_type)
+
+    except Exception as e:
+        logger.error(f"画像取得エラー: {session_id}/photos/{filename} - {e}")
+        return jsonify({'error': '画像の取得に失敗しました'}), 500
 
 # 2. パートナー画像生成
 @app.route('/api/sessions/<session_id>/generate-image', methods=['POST'])
 def generate_partner_image(session_id):
+    # セッション存在確認
+    if not session_exists(session_id):
+        logger.warning(f"存在しないセッション: {session_id}")
+        return jsonify({'status': 'error', 'error': 'セッションが存在しません'}), 404
+
     req = request.get_json() or {}
     target = req.get('target')
     if target != 'partner':
         return jsonify({'status': 'error', 'error': '現在partnerのみ対応'}), 400
-    # プロファイルから顔特徴取得
-    session_dir = session_path(session_id)
-    prof = load_file(os.path.join(session_dir, 'user_profile.json'), {})
+
+    # プロファイルから顔特徴取得（session_mgr使用）
+    prof = load_session_data(session_id, 'user_profile', {})
     desc = prof.get('partner_face_description')
     if not desc:
         return jsonify({'status': 'error', 'error': 'partner_face_descriptionが未入力'}), 400
+
     prompt = f"パートナーの顔の特徴: {desc}"
+
     try:
         from google.generativeai import GenerativeModel
         gm = GenerativeModel('gemini-2.5-pro')
@@ -553,29 +670,68 @@ def generate_partner_image(session_id):
         # 実際は gm.generate_image(prompt=...) などを記載
         # 今はダミー生成(JPEG白紙画像)
         from PIL import Image
+        import io
         img = Image.new('RGB', (512, 512), color='white')
-        dest_dir = os.path.join(session_dir, 'photos')
-        os.makedirs(dest_dir, exist_ok=True)
-        dest_path = os.path.join(dest_dir, 'partner.png')
-        img.save(dest_path)
-        return jsonify({'status': 'success', 'image_url': f'/api/sessions/{session_id}/photos/partner.png', 'meta': {'target': 'partner', 'prompt_used': prompt}})
+
+        # 画像をバイトデータに変換
+        img_bytes = io.BytesIO()
+        img.save(img_bytes, format='PNG')
+        img_data = img_bytes.getvalue()
+
+        # storage_mgrで保存（ローカル/クラウド自動切り替え）
+        image_url = storage_mgr.save_file(session_id, 'photos/partner.png', img_data)
+        logger.info(f"パートナー画像生成成功: {session_id}/photos/partner.png")
+
+        return jsonify({
+            'status': 'success',
+            'image_url': image_url,
+            'meta': {'target': 'partner', 'prompt_used': prompt}
+        })
     except Exception as e:
-        return jsonify({'status': 'error', 'error': f'Gemini API error: {e}'})
+        logger.error(f"パートナー画像生成エラー: {session_id} - {e}")
+        return jsonify({'status': 'error', 'error': f'画像生成に失敗しました: {e}'}), 500
 
 # 3. 子ども画像 合成API（スタブ）
 @app.route('/api/sessions/<session_id>/generate-child-image', methods=['POST'])
 def generate_child_image(session_id):
-    session_dir = session_path(session_id)
-    img_user = os.path.join(session_dir, 'photos', 'user.png')
-    img_partner = os.path.join(session_dir, 'photos', 'partner.png')
-    if not (os.path.exists(img_user) and os.path.exists(img_partner)):
-        return jsonify({'status': 'error', 'error': 'user/partner画像が両方必要'}), 400
-    # 子ども画像は現状ダミー生成(白)→本番は合成APIやGAN画像生成等に拡張
-    from PIL import Image
-    img = Image.new('RGB', (512, 512), color='white')
-    dest_path = os.path.join(session_dir, 'photos', 'child_1.png')
-    img.save(dest_path)
-    return jsonify({'status': 'success', 'image_url': f'/api/sessions/{session_id}/photos/child_1.png', 'meta': {'target': 'child', 'child_ver': 1}})
+    # セッション存在確認
+    if not session_exists(session_id):
+        logger.warning(f"存在しないセッション: {session_id}")
+        return jsonify({'status': 'error', 'error': 'セッションが存在しません'}), 404
+
+    try:
+        # storage_mgrから画像データ取得
+        img_user_data = storage_mgr.load_file(session_id, 'photos/user.png')
+        img_partner_data = storage_mgr.load_file(session_id, 'photos/partner.png')
+
+        if img_user_data is None or img_partner_data is None:
+            return jsonify({
+                'status': 'error',
+                'error': 'user/partner画像が両方必要です'
+            }), 400
+
+        # 子ども画像は現状ダミー生成(白)→本番は合成APIやGAN画像生成等に拡張
+        from PIL import Image
+        import io
+        img = Image.new('RGB', (512, 512), color='white')
+
+        # 画像をバイトデータに変換
+        img_bytes = io.BytesIO()
+        img.save(img_bytes, format='PNG')
+        img_data = img_bytes.getvalue()
+
+        # storage_mgrで保存（ローカル/クラウド自動切り替え）
+        image_url = storage_mgr.save_file(session_id, 'photos/child_1.png', img_data)
+        logger.info(f"子供画像生成成功: {session_id}/photos/child_1.png")
+
+        return jsonify({
+            'status': 'success',
+            'image_url': image_url,
+            'meta': {'target': 'child', 'child_ver': 1}
+        })
+    except Exception as e:
+        logger.error(f"子供画像生成エラー: {session_id} - {e}")
+        return jsonify({'status': 'error', 'error': f'画像生成に失敗しました: {e}'}), 500
 
 if __name__ == "__main__":
     # 環境変数でデバッグモードを制御（本番環境では無効化）
