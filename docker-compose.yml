@@ -1,143 +1,105 @@
 version: '3.8'
 
 services:
-  # フロントエンド (React/Next.js)
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "3000:3000"
-    environment:
-      - REACT_APP_API_URL=http://localhost:8000
-      - REACT_APP_WS_URL=ws://localhost:8000/ws
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    depends_on:
-      - backend
-    networks:
-      - ai-family-network
-
-  # バックエンド (FastAPI)
+  # ============================================
+  # バックエンドAPI (Flask)
+  # ============================================
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    container_name: hera-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - FLASK_DEBUG=False
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - SESSIONS_DIR=/app/tmp/user_sessions
+      - ALLOWED_ORIGINS=http://localhost:3000,http://frontend:3000
+      - PORT=8080
+    volumes:
+      # セッションデータの永続化
+      - backend-sessions:/app/tmp/user_sessions
+      # ログの永続化
+      - backend-logs:/app/logs
+      # 開発時のホットリロード用（本番では削除推奨）
+      - ./backend:/app:ro
+    networks:
+      - hera-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # ============================================
+  # Google ADK開発UI
+  # ============================================
+  adk:
+    image: python:3.11-slim
+    container_name: hera-adk
+    working_dir: /app
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://postgres:password@db:5432/ai_family_sim
-      - REDIS_URL=redis://redis:6379
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - PYTHONPATH=/app
     volumes:
       - ./backend:/app
-      - ./shared:/app/shared
+    networks:
+      - hera-network
+    command: >
+      bash -c "
+        pip install --no-cache-dir -r requirements.txt &&
+        python -m google.adk dev --port 8000 --host 0.0.0.0
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
     depends_on:
-      - db
-      - redis
-    networks:
-      - ai-family-network
-
-  # データベース (PostgreSQL)
-  db:
-    image: postgres:15-alpine
-    environment:
-      - POSTGRES_DB=ai_family_sim
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./docs/database/init.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "5432:5432"
-    networks:
-      - ai-family-network
-
-  # キャッシュ (Redis)
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - ai-family-network
-
-  # AIエージェントサービス
-  agents:
-    build:
-      context: ./agents
-      dockerfile: Dockerfile
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - DATABASE_URL=postgresql://postgres:password@db:5432/ai_family_sim
-      - REDIS_URL=redis://redis:6379
-    volumes:
-      - ./agents:/app
-      - ./shared:/app/shared
-    depends_on:
-      - db
-      - redis
-    networks:
-      - ai-family-network
-
-  # メディア処理サービス
-  media-processor:
-    build:
-      context: ./media-processor
-      dockerfile: Dockerfile
-    environment:
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - S3_BUCKET=${S3_BUCKET}
-    volumes:
-      - ./media-processor:/app
-    networks:
-      - ai-family-network
-
-  # 監視・ログ (Prometheus + Grafana)
-  prometheus:
-    image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
-    networks:
-      - ai-family-network
-
-  grafana:
-    image: grafana/grafana:latest
-    ports:
-      - "3001:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-    volumes:
-      - grafana_data:/var/lib/grafana
-    networks:
-      - ai-family-network
-
-  # リバースプロキシ (Nginx)
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
-      - ./nginx/ssl:/etc/nginx/ssl
-    depends_on:
-      - frontend
       - backend
+
+  # ============================================
+  # フロントエンド (Next.js)
+  # ============================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL=http://localhost:8080
+    container_name: hera-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8080
+      - NODE_ENV=production
     networks:
-      - ai-family-network
+      - hera-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
 
+# ============================================
+# ボリューム定義
+# ============================================
 volumes:
-  postgres_data:
-  redis_data:
-  grafana_data:
+  backend-sessions:
+    driver: local
+  backend-logs:
+    driver: local
 
+# ============================================
+# ネットワーク定義
+# ============================================
 networks:
-  ai-family-network:
+  hera-network:
     driver: bridge
