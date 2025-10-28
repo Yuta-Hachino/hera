@@ -27,6 +27,8 @@ from agents.family.story_generator import StoryGenerator
 from agents.family.letter_generator import LetterGenerator
 from utils.logger import setup_logger
 from utils.env_validator import validate_env
+from utils.session_manager import get_session_manager, SessionManager
+from utils.storage_manager import create_storage_manager, StorageManager
 
 # 環境変数を読み込み
 load_dotenv()
@@ -74,26 +76,74 @@ allowed_origins = os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000').split(',
 CORS(app, origins=allowed_origins, supports_credentials=True)
 logger.info(f"CORS許可オリジン: {allowed_origins}")
 
-# セッションディレクトリ
+# セッションディレクトリ（画像保存用に残す）
 SESSIONS_DIR = get_sessions_dir()
 os.makedirs(SESSIONS_DIR, exist_ok=True)
+
+# セッション管理とストレージ管理の初期化
+try:
+    session_mgr: SessionManager = get_session_manager()
+    storage_mgr: StorageManager = create_storage_manager()
+    storage_mode = os.getenv('STORAGE_MODE', 'local').lower()
+    logger.info(f"セッション管理初期化完了: {type(session_mgr).__name__}")
+    logger.info(f"ストレージ管理初期化完了: {type(storage_mgr).__name__} (mode={storage_mode})")
+except Exception as e:
+    logger.error(f"マネージャー初期化エラー: {e}")
+    raise
 
 # Utility関数
 
 def session_path(session_id: str) -> str:
+    """画像保存用のパス取得（後方互換性のため残す）"""
     return os.path.join(SESSIONS_DIR, session_id)
 
 def load_file(path: str, default=None):
+    """ファイルベースのデータ読み込み（後方互換性のため残す）"""
     if os.path.exists(path):
         with open(path, encoding='utf-8') as f:
             return json.load(f)
     return default
 
 def save_file(path: str, data):
+    """ファイルベースのデータ保存（後方互換性のため残す）"""
     # ディレクトリが存在しない場合は作成
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+# 新しいセッション管理関数
+def save_session_data(session_id: str, key: str, data: Any) -> None:
+    """セッションデータを保存（Redis/File自動切り替え）"""
+    try:
+        # session_mgrはDict形式を期待しているので、keyをディクショナリに包む
+        session_mgr.save(session_id, {key: data})
+        logger.debug(f"セッションデータ保存: {session_id}/{key}")
+    except Exception as e:
+        logger.error(f"セッションデータ保存エラー: {session_id}/{key} - {e}")
+        raise
+
+
+def load_session_data(session_id: str, key: str, default: Any = None) -> Any:
+    """セッションデータを読み込み（Redis/File自動切り替え）"""
+    try:
+        data = session_mgr.load(session_id)
+        if data and key in data:
+            logger.debug(f"セッションデータ読み込み: {session_id}/{key}")
+            return data[key]
+        return default
+    except Exception as e:
+        logger.error(f"セッションデータ読み込みエラー: {session_id}/{key} - {e}")
+        return default
+
+
+def session_exists(session_id: str) -> bool:
+    """セッションが存在するか確認"""
+    try:
+        return session_mgr.exists(session_id)
+    except Exception as e:
+        logger.error(f"セッション存在確認エラー: {session_id} - {e}")
+        return False
 
 
 class FamilyConversationSession:
@@ -118,35 +168,27 @@ class FamilyConversationSession:
         self._load_cached_state()
 
     def _load_cached_state(self) -> None:
-        """既存の会話ログや旅行情報があれば読み込む"""
-        session_dir = session_path(self.session_id)
-        conversation_path = os.path.join(session_dir, 'family_conversation.json')
-        trip_path = os.path.join(session_dir, 'family_trip_info.json')
-        plan_path = os.path.join(session_dir, 'family_plan.json')
-
-        cached_log = load_file(conversation_path, [])
+        """既存の会話ログや旅行情報があれば読み込む（session_mgr使用）"""
+        cached_log = load_session_data(self.session_id, 'family_conversation', [])
         if isinstance(cached_log, list):
             self.state["family_conversation_log"] = cached_log
 
-        cached_trip = load_file(trip_path, {})
+        cached_trip = load_session_data(self.session_id, 'family_trip_info', {})
         if isinstance(cached_trip, dict):
             self.state["family_trip_info"] = cached_trip
 
-        cached_plan = load_file(plan_path, None)
+        cached_plan = load_session_data(self.session_id, 'family_plan', None)
         if isinstance(cached_plan, dict):
             self.state["family_plan_data"] = cached_plan
             self.state["family_plan_generated"] = True
             self.state["family_conversation_complete"] = True
 
     async def initialize(self) -> None:
-        """ペルソナ生成とツールセット初期化"""
+        """ペルソナ生成とツールセット初期化（session_mgr使用）"""
         if self.initialized:
             return
 
-        profile = load_file(
-            os.path.join(session_path(self.session_id), 'user_profile.json'),
-            {}
-        )
+        profile = load_session_data(self.session_id, 'user_profile', {})
         if not profile:
             raise ValueError("ユーザープロファイルが見つからないため、家族会話を開始できません。")
         self.user_profile = profile
@@ -206,21 +248,22 @@ class FamilyConversationSession:
         return responses
 
     def persist(self) -> None:
-        """セッション状態をディスクに保存"""
-        session_dir = session_path(self.session_id)
-        os.makedirs(session_dir, exist_ok=True)
-        save_file(
-            os.path.join(session_dir, 'family_conversation.json'),
-            self.state.get("family_conversation_log", []),
+        """セッション状態を保存（session_mgr使用）"""
+        save_session_data(
+            self.session_id,
+            'family_conversation',
+            self.state.get("family_conversation_log", [])
         )
-        save_file(
-            os.path.join(session_dir, 'family_trip_info.json'),
-            self.state.get("family_trip_info", {}),
+        save_session_data(
+            self.session_id,
+            'family_trip_info',
+            self.state.get("family_trip_info", {})
         )
         if self.state.get("family_plan_data"):
-            save_file(
-                os.path.join(session_dir, 'family_plan.json'),
-                self.state["family_plan_data"],
+            save_session_data(
+                self.session_id,
+                'family_plan',
+                self.state["family_plan_data"]
             )
 
     def status(self) -> Dict[str, Any]:
@@ -337,21 +380,30 @@ def get_family_session(session_id: str) -> FamilyConversationSession:
 @app.route('/api/sessions', methods=['POST'])
 def create_session():
     session_id = str(uuid.uuid4())
+
+    # セッション初期化（session_mgr使用）
+    try:
+        save_session_data(session_id, 'user_profile', {})
+        save_session_data(session_id, 'conversation_history', [])
+        save_session_data(session_id, 'created_at', datetime.now().isoformat())
+        logger.info(f"セッション作成: {session_id}")
+    except Exception as e:
+        logger.error(f"セッション作成エラー: {session_id} - {e}")
+        return jsonify({'error': 'セッション作成に失敗しました'}), 500
+
+    # 画像保存用ディレクトリ作成（ローカルファイルシステム用）
     path = session_path(session_id)
     os.makedirs(path, exist_ok=True)
     os.makedirs(os.path.join(path, 'photos'), exist_ok=True)
-    # プロファイル初期化
-    save_file(os.path.join(path, 'user_profile.json'), {})
-    save_file(os.path.join(path, 'conversation_history.json'), [])
 
     try:
         run_async(hera_agent.start_session(session_id))
     except Exception as e:
-        print(f"[WARN] start_session failed for {session_id}: {e}")
+        logger.warning(f"start_session failed for {session_id}: {e}")
 
     return jsonify({
         'session_id': session_id,
-        'created_at': str(uuid.uuid1().time),
+        'created_at': datetime.now().isoformat(),
         'status': 'created'
     })
 
@@ -364,6 +416,12 @@ def send_message(session_id):
 
     user_message = req['message']
 
+    # セッション存在確認
+    if not session_exists(session_id):
+        logger.warning(f"存在しないセッション: {session_id}")
+        return jsonify({'error': 'セッションが存在しません'}), 404
+
+    # 画像保存用ディレクトリ作成（必要に応じて）
     session_dir = session_path(session_id)
     os.makedirs(session_dir, exist_ok=True)
     os.makedirs(os.path.join(session_dir, 'photos'), exist_ok=True)
@@ -380,18 +438,18 @@ def send_message(session_id):
         else:
             agent_response = raw_response
     except Exception as e:
-        print(f"[ERROR] Hera agent execution failed: {e}")
+        logger.error(f"Hera agent execution failed: {e}")
         return jsonify({
             'error': 'エージェント処理でエラーが発生しました',
             'reply': '申し訳ございません。しばらく時間をおいてから再度お試しください。'
         }), 500
 
-    # セッションデータの保存
+    # セッションデータの保存（session_mgr使用）
     profile_from_agent = agent_response.get('user_profile') or {}
     profile_pruned = prune_empty_fields(profile_from_agent)
-    save_file(os.path.join(session_dir, 'user_profile.json'), profile_pruned)
+    save_session_data(session_id, 'user_profile', profile_pruned)
 
-    history = load_file(os.path.join(session_dir, 'conversation_history.json'), [])
+    history = load_session_data(session_id, 'conversation_history', [])
     if not history:
         # fall back to in-memoryログ
         history = hera_agent.conversation_history
@@ -414,10 +472,15 @@ def send_message(session_id):
 # 3. 進捗・履歴・プロフィール取得
 @app.route('/api/sessions/<session_id>/status', methods=['GET'])
 def get_status(session_id):
-    session_dir = session_path(session_id)
-    profile = load_file(os.path.join(session_dir, 'user_profile.json'), {}) or {}
+    # セッション存在確認
+    if not session_exists(session_id):
+        logger.warning(f"存在しないセッション: {session_id}")
+        return jsonify({'error': 'セッションが存在しません'}), 404
+
+    # session_mgrからデータ取得
+    profile = load_session_data(session_id, 'user_profile', {}) or {}
     profile_pruned = prune_empty_fields(profile)
-    history = load_file(os.path.join(session_dir, 'conversation_history.json'), []) or []
+    history = load_session_data(session_id, 'conversation_history', []) or []
 
     progress = build_information_progress(profile_pruned)
     missing_fields = compute_missing_fields(profile_pruned)
@@ -433,10 +496,15 @@ def get_status(session_id):
 # 4. セッション完了（必須情報充足/保存・family_agent転送準備）
 @app.route('/api/sessions/<session_id>/complete', methods=['POST'])
 def complete_session(session_id):
-    session_dir = session_path(session_id)
-    profile = load_file(os.path.join(session_dir, 'user_profile.json'), {}) or {}
+    # セッション存在確認
+    if not session_exists(session_id):
+        logger.warning(f"存在しないセッション: {session_id}")
+        return jsonify({'error': 'セッションが存在しません'}), 404
+
+    # session_mgrからデータ取得
+    profile = load_session_data(session_id, 'user_profile', {}) or {}
     profile_pruned = prune_empty_fields(profile)
-    history = load_file(os.path.join(session_dir, 'conversation_history.json'), []) or []
+    history = load_session_data(session_id, 'conversation_history', []) or []
 
     progress = build_information_progress(profile_pruned)
     missing_fields = compute_missing_fields(profile_pruned)
@@ -455,8 +523,9 @@ def complete_session(session_id):
     try:
         family_session = get_family_session(session_id)
         run_async(family_session.initialize())
+        logger.info(f"家族エージェント初期化完了: {session_id}")
     except Exception as e:
-        print(f"[WARN] 家族エージェント初期化に失敗しました: {e}")
+        logger.warning(f"家族エージェント初期化に失敗しました: {e}")
 
     return jsonify({
         'message': '収集が完了しました。ありがとうございました。',
