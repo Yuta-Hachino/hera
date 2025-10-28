@@ -582,39 +582,87 @@ UPLOAD_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
 # 1. ユーザー画像アップロード
 @app.route('/api/sessions/<session_id>/photos/user', methods=['POST'])
 def upload_user_photo(session_id):
+    # セッション存在確認
+    if not session_exists(session_id):
+        logger.warning(f"存在しないセッション: {session_id}")
+        return jsonify({'status': 'error', 'error': 'セッションが存在しません'}), 404
+
     if 'file' not in request.files:
         return jsonify({'status': 'error', 'error': '画像ファイルがありません'}), 400
+
     file = request.files['file']
     filename = secure_filename(file.filename)
     ext = os.path.splitext(filename)[1].lower()
     if ext not in UPLOAD_EXTENSIONS:
         return jsonify({'status': 'error', 'error': '対応形式: jpg, jpeg, png'}), 400
-    dest_dir = os.path.join(session_path(session_id), 'photos')
-    os.makedirs(dest_dir, exist_ok=True)
-    dest_path = os.path.join(dest_dir, 'user.png')
-    file.save(dest_path)
-    return jsonify({'status': 'success', 'image_url': f'/api/sessions/{session_id}/photos/user.png'})
+
+    try:
+        # 画像データ読み込み
+        file_data = file.read()
+
+        # storage_mgrで保存（ローカル/クラウド自動切り替え）
+        image_url = storage_mgr.save_file(session_id, 'photos/user.png', file_data)
+        logger.info(f"画像アップロード成功: {session_id}/photos/user.png")
+
+        return jsonify({
+            'status': 'success',
+            'image_url': image_url
+        })
+    except Exception as e:
+        logger.error(f"画像アップロードエラー: {session_id} - {e}")
+        return jsonify({'status': 'error', 'error': '画像の保存に失敗しました'}), 500
 
 # 画像ファイル取得（静的配信用途）
 @app.route('/api/sessions/<session_id>/photos/<filename>')
 def get_photo(session_id, filename):
-    dirpath = os.path.join(session_path(session_id), 'photos')
-    return send_from_directory(dirpath, filename)
+    # セッション存在確認
+    if not session_exists(session_id):
+        logger.warning(f"存在しないセッション: {session_id}")
+        return jsonify({'error': 'セッションが存在しません'}), 404
+
+    try:
+        # storage_mgrから画像データ取得
+        file_data = storage_mgr.load_file(session_id, f'photos/{filename}')
+
+        if file_data is None:
+            logger.warning(f"画像が見つかりません: {session_id}/photos/{filename}")
+            return jsonify({'error': '画像が見つかりません'}), 404
+
+        # Content-Typeを推測
+        import mimetypes
+        content_type, _ = mimetypes.guess_type(filename)
+        if content_type is None:
+            content_type = 'application/octet-stream'
+
+        # バイナリデータをレスポンス
+        from flask import Response
+        return Response(file_data, mimetype=content_type)
+
+    except Exception as e:
+        logger.error(f"画像取得エラー: {session_id}/photos/{filename} - {e}")
+        return jsonify({'error': '画像の取得に失敗しました'}), 500
 
 # 2. パートナー画像生成
 @app.route('/api/sessions/<session_id>/generate-image', methods=['POST'])
 def generate_partner_image(session_id):
+    # セッション存在確認
+    if not session_exists(session_id):
+        logger.warning(f"存在しないセッション: {session_id}")
+        return jsonify({'status': 'error', 'error': 'セッションが存在しません'}), 404
+
     req = request.get_json() or {}
     target = req.get('target')
     if target != 'partner':
         return jsonify({'status': 'error', 'error': '現在partnerのみ対応'}), 400
-    # プロファイルから顔特徴取得
-    session_dir = session_path(session_id)
-    prof = load_file(os.path.join(session_dir, 'user_profile.json'), {})
+
+    # プロファイルから顔特徴取得（session_mgr使用）
+    prof = load_session_data(session_id, 'user_profile', {})
     desc = prof.get('partner_face_description')
     if not desc:
         return jsonify({'status': 'error', 'error': 'partner_face_descriptionが未入力'}), 400
+
     prompt = f"パートナーの顔の特徴: {desc}"
+
     try:
         from google.generativeai import GenerativeModel
         gm = GenerativeModel('gemini-2.5-pro')
@@ -622,29 +670,68 @@ def generate_partner_image(session_id):
         # 実際は gm.generate_image(prompt=...) などを記載
         # 今はダミー生成(JPEG白紙画像)
         from PIL import Image
+        import io
         img = Image.new('RGB', (512, 512), color='white')
-        dest_dir = os.path.join(session_dir, 'photos')
-        os.makedirs(dest_dir, exist_ok=True)
-        dest_path = os.path.join(dest_dir, 'partner.png')
-        img.save(dest_path)
-        return jsonify({'status': 'success', 'image_url': f'/api/sessions/{session_id}/photos/partner.png', 'meta': {'target': 'partner', 'prompt_used': prompt}})
+
+        # 画像をバイトデータに変換
+        img_bytes = io.BytesIO()
+        img.save(img_bytes, format='PNG')
+        img_data = img_bytes.getvalue()
+
+        # storage_mgrで保存（ローカル/クラウド自動切り替え）
+        image_url = storage_mgr.save_file(session_id, 'photos/partner.png', img_data)
+        logger.info(f"パートナー画像生成成功: {session_id}/photos/partner.png")
+
+        return jsonify({
+            'status': 'success',
+            'image_url': image_url,
+            'meta': {'target': 'partner', 'prompt_used': prompt}
+        })
     except Exception as e:
-        return jsonify({'status': 'error', 'error': f'Gemini API error: {e}'})
+        logger.error(f"パートナー画像生成エラー: {session_id} - {e}")
+        return jsonify({'status': 'error', 'error': f'画像生成に失敗しました: {e}'}), 500
 
 # 3. 子ども画像 合成API（スタブ）
 @app.route('/api/sessions/<session_id>/generate-child-image', methods=['POST'])
 def generate_child_image(session_id):
-    session_dir = session_path(session_id)
-    img_user = os.path.join(session_dir, 'photos', 'user.png')
-    img_partner = os.path.join(session_dir, 'photos', 'partner.png')
-    if not (os.path.exists(img_user) and os.path.exists(img_partner)):
-        return jsonify({'status': 'error', 'error': 'user/partner画像が両方必要'}), 400
-    # 子ども画像は現状ダミー生成(白)→本番は合成APIやGAN画像生成等に拡張
-    from PIL import Image
-    img = Image.new('RGB', (512, 512), color='white')
-    dest_path = os.path.join(session_dir, 'photos', 'child_1.png')
-    img.save(dest_path)
-    return jsonify({'status': 'success', 'image_url': f'/api/sessions/{session_id}/photos/child_1.png', 'meta': {'target': 'child', 'child_ver': 1}})
+    # セッション存在確認
+    if not session_exists(session_id):
+        logger.warning(f"存在しないセッション: {session_id}")
+        return jsonify({'status': 'error', 'error': 'セッションが存在しません'}), 404
+
+    try:
+        # storage_mgrから画像データ取得
+        img_user_data = storage_mgr.load_file(session_id, 'photos/user.png')
+        img_partner_data = storage_mgr.load_file(session_id, 'photos/partner.png')
+
+        if img_user_data is None or img_partner_data is None:
+            return jsonify({
+                'status': 'error',
+                'error': 'user/partner画像が両方必要です'
+            }), 400
+
+        # 子ども画像は現状ダミー生成(白)→本番は合成APIやGAN画像生成等に拡張
+        from PIL import Image
+        import io
+        img = Image.new('RGB', (512, 512), color='white')
+
+        # 画像をバイトデータに変換
+        img_bytes = io.BytesIO()
+        img.save(img_bytes, format='PNG')
+        img_data = img_bytes.getvalue()
+
+        # storage_mgrで保存（ローカル/クラウド自動切り替え）
+        image_url = storage_mgr.save_file(session_id, 'photos/child_1.png', img_data)
+        logger.info(f"子供画像生成成功: {session_id}/photos/child_1.png")
+
+        return jsonify({
+            'status': 'success',
+            'image_url': image_url,
+            'meta': {'target': 'child', 'child_ver': 1}
+        })
+    except Exception as e:
+        logger.error(f"子供画像生成エラー: {session_id} - {e}")
+        return jsonify({'status': 'error', 'error': f'画像生成に失敗しました: {e}'}), 500
 
 if __name__ == "__main__":
     # 環境変数でデバッグモードを制御（本番環境では無効化）
