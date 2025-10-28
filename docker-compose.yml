@@ -47,8 +47,13 @@ services:
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - PYTHONPATH=/app
+      - SESSIONS_DIR=/app/tmp/user_sessions
     volumes:
       - ./backend:/app
+      # backendと同じセッションボリュームを共有
+      - backend-sessions:/app/tmp/user_sessions
+      # ログも共有（オプション）
+      - backend-logs:/app/logs
     networks:
       - hera-network
     command: >
