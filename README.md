@@ -171,9 +171,27 @@ Google ADKの正式なフレームワークを使用した高度なエージェ�
 
 ## 🚀 セットアップと実行
 
-詳細な実行手順は [backend/README.md](backend/README.md) を参照してください。
+### 🐳 Docker を使う場合（推奨）
 
-### クイックスタート
+```bash
+# 1. 環境変数を設定
+cp backend/.env.example .env
+# .envファイルを編集してGEMINI_API_KEYを設定
+
+# 2. Dockerコンテナを起動
+docker-compose up --build
+
+# アクセス:
+# フロントエンド: http://localhost:3000
+# バックエンドAPI: http://localhost:8080
+# Google ADK開発UI: http://localhost:8000
+```
+
+詳細は [DOCKER.md](DOCKER.md) を参照してください。
+
+### ⚙️ ローカル環境で実行する場合
+
+詳細な実行手順は [backend/README.md](backend/README.md) を参照してください。
 
 ```bash
 # 1. 仮想環境を作成・有効化
@@ -186,7 +204,7 @@ pip install -r backend/requirements.txt
 
 # 3. 環境変数を設定（backend/.envファイルを作成）
 cd backend
-cp env.example .env
+cp .env.example .env
 # .envファイルを編集してAPIキーを設定
 
 # 4. APIサーバーを起動

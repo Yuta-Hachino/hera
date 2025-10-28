@@ -9,6 +9,11 @@ from typing import List, Dict, Optional
 from PIL import Image
 import io
 from google import genai
+import sys
+
+# プロジェクトルートをパスに追加
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+from config import get_sessions_dir
 
 
 class FamilyImageGenerator:
@@ -50,7 +55,7 @@ class FamilyImageGenerator:
 
     async def get_user_image_path(self, session_id: str) -> Optional[str]:
         """既存のユーザー画像パスを取得"""
-        photos_dir = f"/Users/naoya.yasuda/Geniac-Prize/geechs-ai-hackathon-202510-team-a/backend/tmp/user_sessions/{session_id}/photos/"
+        photos_dir = os.path.join(get_sessions_dir(), session_id, "photos")
 
         if not os.path.exists(photos_dir):
             print(f"[WARN] ユーザー画像ディレクトリが存在しません: {photos_dir}")
@@ -58,7 +63,7 @@ class FamilyImageGenerator:
 
         # ユーザー画像ファイルを探す
         for ext in ['jpg', 'jpeg', 'png']:
-            user_image_path = f"{photos_dir}user.{ext}"
+            user_image_path = os.path.join(photos_dir, f"user.{ext}")
             if os.path.exists(user_image_path):
                 print(f"[INFO] ユーザー画像を発見: {user_image_path}")
                 return user_image_path
@@ -141,10 +146,10 @@ class FamilyImageGenerator:
             print(f"[DEBUG] Gemini Flash Imageマルチモーダルレスポンス受信")
 
             # セッションディレクトリに保存
-            session_dir = f"/Users/naoya.yasuda/Geniac-Prize/geechs-ai-hackathon-202510-team-a/backend/tmp/user_sessions/{self.current_session}/photos/"
+            session_dir = os.path.join(get_sessions_dir(), self.current_session, "photos")
             os.makedirs(session_dir, exist_ok=True)
 
-            image_path = f"{session_dir}{filename}.jpg"
+            image_path = os.path.join(session_dir, f"{filename}.jpg")
 
             # レスポンスから画像データを抽出
             for part in response.candidates[0].content.parts:
@@ -181,10 +186,10 @@ class FamilyImageGenerator:
             print(f"[DEBUG] Gemini Flash Imageレスポンス受信")
 
             # セッションディレクトリに保存
-            session_dir = f"/Users/naoya.yasuda/Geniac-Prize/geechs-ai-hackathon-202510-team-a/backend/tmp/user_sessions/{self.current_session}/photos/"
+            session_dir = os.path.join(get_sessions_dir(), self.current_session, "photos")
             os.makedirs(session_dir, exist_ok=True)
 
-            image_path = f"{session_dir}{filename}.jpg"
+            image_path = os.path.join(session_dir, f"{filename}.jpg")
 
             # レスポンスから画像データを抽出
             for part in response.candidates[0].content.parts:
