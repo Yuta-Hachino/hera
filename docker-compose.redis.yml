@@ -1,8 +1,11 @@
+# ==========================================
+# Redis セッション管理版（クラウド対応）
+# ==========================================
 version: '3.8'
 
 services:
   # ============================================
-  # バックエンドAPI (Flask)
+  # バックエンドAPI
   # ============================================
   backend:
     build:
@@ -15,18 +18,19 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - FLASK_DEBUG=False
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - SESSIONS_DIR=/app/tmp/user_sessions
+      # Redisベースのセッション管理
+      - SESSION_TYPE=redis
+      - REDIS_URL=redis://redis:6379/0
       - ALLOWED_ORIGINS=http://localhost:3000,http://frontend:3000
       - PORT=8080
     volumes:
-      # セッションデータの永続化
-      - backend-sessions:/app/tmp/user_sessions
-      # ログの永続化
+      # ログのみローカル保存（セッションはRedisに保存）
       - backend-logs:/app/logs
-      # 開発時のホットリロード用（本番では削除推奨）
       - ./backend:/app:ro
     networks:
       - hera-network
+    depends_on:
+      - redis
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
       interval: 30s
@@ -47,15 +51,16 @@ services:
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - PYTHONPATH=/app
-      - SESSIONS_DIR=/app/tmp/user_sessions
+      # Redisベースのセッション管理
+      - SESSION_TYPE=redis
+      - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./backend:/app
-      # backendと同じセッションボリュームを共有
-      - backend-sessions:/app/tmp/user_sessions
-      # ログも共有（オプション）
       - backend-logs:/app/logs
     networks:
       - hera-network
+    depends_on:
+      - redis
     command: >
       bash -c "
         pip install --no-cache-dir -r requirements.txt &&
@@ -68,8 +73,27 @@ services:
       retries: 3
       start_period: 60s
     restart: unless-stopped
-    depends_on:
-      - backend
+
+  # ============================================
+  # Redis（セッションストア）
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: hera-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      # Redisデータの永続化
+      - redis-data:/data
+    networks:
+      - hera-network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
 
   # ============================================
   # フロントエンド (Next.js)
@@ -97,7 +121,7 @@ services:
 # ボリューム定義
 # ============================================
 volumes:
-  backend-sessions:
+  redis-data:
     driver: local
   backend-logs:
     driver: local
