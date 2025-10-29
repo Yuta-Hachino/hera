@@ -29,7 +29,11 @@ pytest-asyncio==0.24.0
 pytest-cov==6.0.0
 
 # クラウドストレージ（オプション）
-redis==5.0.1  # セッション管理
+redis==5.0.1  # セッション管理（廃止予定）
 boto3==1.35.0  # AWS S3
 google-cloud-storage==2.18.2  # Google Cloud Storage
 azure-storage-blob==12.23.1  # Azure Blob Storage
+
+# Supabase統合
+supabase==2.3.4  # Supabase Python client
+pyjwt==2.8.0  # JWT認証

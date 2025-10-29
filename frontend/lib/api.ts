@@ -6,6 +6,7 @@ import {
   FamilyMessageResponse,
   FamilyStatusResponse,
 } from './types';
+import { getAccessToken } from './supabase';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -16,19 +17,34 @@ class ApiError extends Error {
   }
 }
 
+interface FetchApiOptions extends RequestInit {
+  requireAuth?: boolean;
+}
+
 async function fetchApi<T>(
   endpoint: string,
-  options?: RequestInit
+  options?: FetchApiOptions
 ): Promise<T> {
+  const { requireAuth = false, ...fetchOptions } = options || {};
   const url = `${API_URL}${endpoint}`;
+
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...fetchOptions?.headers,
+  };
+
+  // 認証が必要な場合はJWTトークンを付与
+  if (requireAuth) {
+    const token = await getAccessToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
 
   try {
     const response = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      },
+      ...fetchOptions,
+      headers,
     });
 
     if (!response.ok) {
@@ -50,49 +66,62 @@ async function fetchApi<T>(
   }
 }
 
-export async function createSession(): Promise<SessionResponse> {
+export async function createSession(requireAuth: boolean = false): Promise<SessionResponse> {
   return fetchApi<SessionResponse>('/api/sessions', {
     method: 'POST',
+    requireAuth,
   });
 }
 
 export async function sendMessage(
   sessionId: string,
-  message: string
+  message: string,
+  requireAuth: boolean = false
 ): Promise<MessageResponse> {
   return fetchApi<MessageResponse>(`/api/sessions/${sessionId}/messages`, {
     method: 'POST',
     body: JSON.stringify({ message }),
+    requireAuth,
   });
 }
 
 export async function getSessionStatus(
-  sessionId: string
+  sessionId: string,
+  requireAuth: boolean = false
 ): Promise<StatusResponse> {
-  return fetchApi<StatusResponse>(`/api/sessions/${sessionId}/status`);
+  return fetchApi<StatusResponse>(`/api/sessions/${sessionId}/status`, {
+    requireAuth,
+  });
 }
 
 export async function completeSession(
-  sessionId: string
+  sessionId: string,
+  requireAuth: boolean = false
 ): Promise<CompleteResponse> {
   return fetchApi<CompleteResponse>(`/api/sessions/${sessionId}/complete`, {
     method: 'POST',
+    requireAuth,
   });
 }
 
 export async function getFamilyStatus(
-  sessionId: string
+  sessionId: string,
+  requireAuth: boolean = false
 ): Promise<FamilyStatusResponse> {
-  return fetchApi<FamilyStatusResponse>(`/api/sessions/${sessionId}/family/status`);
+  return fetchApi<FamilyStatusResponse>(`/api/sessions/${sessionId}/family/status`, {
+    requireAuth,
+  });
 }
 
 export async function sendFamilyMessage(
   sessionId: string,
-  message: string
+  message: string,
+  requireAuth: boolean = false
 ): Promise<FamilyMessageResponse> {
   return fetchApi<FamilyMessageResponse>(`/api/sessions/${sessionId}/family/messages`, {
     method: 'POST',
     body: JSON.stringify({ message }),
+    requireAuth,
   });
 }
 
