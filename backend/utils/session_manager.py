@@ -163,13 +163,191 @@ class RedisSessionManager(SessionManager):
         return self.redis.exists(meta_key) > 0
 
 
+class SupabaseSessionManager(SessionManager):
+    """Supabaseベースのセッション管理（本番環境用）"""
+
+    def __init__(self, supabase_url: str, supabase_key: str):
+        """
+        Args:
+            supabase_url: SupabaseプロジェクトのURL
+            supabase_key: Supabaseのサービスロールキー
+        """
+        try:
+            from supabase import create_client, Client
+        except ImportError:
+            raise ImportError(
+                "Supabaseセッション管理を使用するには、supabaseパッケージが必要です。\n"
+                "pip install supabase をして実行してください。"
+            )
+
+        self.client: Client = create_client(supabase_url, supabase_key)
+
+    def save(self, session_id: str, data: Dict[str, Any]) -> None:
+        """セッションデータをSupabaseに保存"""
+        # セッションが存在するか確認
+        session_response = self.client.table('sessions').select('id').eq('session_id', session_id).execute()
+
+        if not session_response.data:
+            # セッションが存在しない場合は作成
+            self.client.table('sessions').insert({
+                'session_id': session_id,
+                'status': 'active',
+                'updated_at': datetime.now().isoformat()
+            }).execute()
+
+        # 各データタイプに応じて保存
+        for key, value in data.items():
+            if key == 'user_profile':
+                # user_profilesテーブルに保存
+                profile_response = self.client.table('user_profiles').select('id').eq('session_id', session_id).execute()
+                if profile_response.data:
+                    # 更新
+                    self.client.table('user_profiles').update(value).eq('session_id', session_id).execute()
+                else:
+                    # 新規作成
+                    profile_data = {'session_id': session_id, **value}
+                    self.client.table('user_profiles').insert(profile_data).execute()
+
+            elif key == 'conversation_history':
+                # conversation_historyテーブルに保存（既存削除→新規挿入）
+                self.client.table('conversation_history').delete().eq('session_id', session_id).execute()
+                if isinstance(value, list):
+                    for idx, conv in enumerate(value):
+                        conv_data = {
+                            'session_id': session_id,
+                            'message': conv.get('message', ''),
+                            'speaker': conv.get('speaker', 'user'),
+                            'order_index': idx,
+                            'timestamp': conv.get('timestamp', datetime.now().isoformat())
+                        }
+                        self.client.table('conversation_history').insert(conv_data).execute()
+
+            elif key == 'family_conversation':
+                # family_conversationsテーブルに保存
+                self.client.table('family_conversations').delete().eq('session_id', session_id).execute()
+                if isinstance(value, list):
+                    for idx, conv in enumerate(value):
+                        conv_data = {
+                            'session_id': session_id,
+                            'message': conv.get('message', ''),
+                            'speaker': conv.get('speaker', 'user'),
+                            'order_index': idx,
+                            'timestamp': conv.get('timestamp', datetime.now().isoformat())
+                        }
+                        self.client.table('family_conversations').insert(conv_data).execute()
+
+            elif key == 'family_trip_info':
+                # family_trip_infoテーブルに保存
+                trip_response = self.client.table('family_trip_info').select('id').eq('session_id', session_id).execute()
+                trip_data = {
+                    'session_id': session_id,
+                    'destination': value.get('destination'),
+                    'activities': value.get('activities', []),
+                    'trip_data': value
+                }
+                if trip_response.data:
+                    self.client.table('family_trip_info').update(trip_data).eq('session_id', session_id).execute()
+                else:
+                    self.client.table('family_trip_info').insert(trip_data).execute()
+
+            elif key == 'family_plan':
+                # family_plansテーブルに保存
+                plan_response = self.client.table('family_plans').select('id').eq('session_id', session_id).execute()
+                plan_data = {
+                    'session_id': session_id,
+                    'destination': value.get('destination'),
+                    'activities': value.get('activities', []),
+                    'story': value.get('story'),
+                    'letter': value.get('letter'),
+                    'plan_data': value
+                }
+                if plan_response.data:
+                    self.client.table('family_plans').update(plan_data).eq('session_id', session_id).execute()
+                else:
+                    self.client.table('family_plans').insert(plan_data).execute()
+
+        # セッションの更新日時を更新
+        self.client.table('sessions').update({
+            'updated_at': datetime.now().isoformat()
+        }).eq('session_id', session_id).execute()
+
+    def load(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """セッションデータをSupabaseから読み込み"""
+        # セッションが存在するか確認
+        session_response = self.client.table('sessions').select('*').eq('session_id', session_id).execute()
+
+        if not session_response.data:
+            return None
+
+        data = {}
+
+        # user_profilesから読み込み
+        profile_response = self.client.table('user_profiles').select('*').eq('session_id', session_id).execute()
+        if profile_response.data:
+            profile = profile_response.data[0]
+            # session_id, id, created_at を除外
+            data['user_profile'] = {k: v for k, v in profile.items()
+                                   if k not in ['id', 'session_id', 'created_at', 'updated_at']}
+
+        # conversation_historyから読み込み
+        conv_response = self.client.table('conversation_history').select('*').eq('session_id', session_id).order('order_index').execute()
+        if conv_response.data:
+            data['conversation_history'] = [
+                {
+                    'message': conv['message'],
+                    'speaker': conv['speaker'],
+                    'timestamp': conv.get('timestamp')
+                }
+                for conv in conv_response.data
+            ]
+
+        # family_conversationsから読み込み
+        family_conv_response = self.client.table('family_conversations').select('*').eq('session_id', session_id).order('order_index').execute()
+        if family_conv_response.data:
+            data['family_conversation'] = [
+                {
+                    'message': conv['message'],
+                    'speaker': conv['speaker'],
+                    'timestamp': conv.get('timestamp')
+                }
+                for conv in family_conv_response.data
+            ]
+
+        # family_trip_infoから読み込み
+        trip_response = self.client.table('family_trip_info').select('*').eq('session_id', session_id).execute()
+        if trip_response.data:
+            data['family_trip_info'] = trip_response.data[0].get('trip_data', {})
+
+        # family_plansから読み込み
+        plan_response = self.client.table('family_plans').select('*').eq('session_id', session_id).execute()
+        if plan_response.data:
+            data['family_plan'] = plan_response.data[0].get('plan_data', {})
+
+        # その他のメタデータ
+        data['created_at'] = session_response.data[0].get('created_at')
+        data['status'] = session_response.data[0].get('status')
+
+        return data
+
+    def delete(self, session_id: str) -> None:
+        """セッションデータを削除（カスケード削除により関連データも削除）"""
+        self.client.table('sessions').delete().eq('session_id', session_id).execute()
+
+    def exists(self, session_id: str) -> bool:
+        """セッションが存在するか確認"""
+        response = self.client.table('sessions').select('id').eq('session_id', session_id).execute()
+        return len(response.data) > 0
+
+
 def create_session_manager() -> SessionManager:
     """
     環境変数に基づいてセッションマネージャーを作成
 
     環境変数:
-        SESSION_TYPE: 'file' または 'redis' (デフォルト: 'file')
+        SESSION_TYPE: 'file', 'redis', 'supabase' (デフォルト: 'file')
         REDIS_URL: RedisのURL（SESSION_TYPE='redis'の場合に必須）
+        SUPABASE_URL: SupabaseプロジェクトのURL（SESSION_TYPE='supabase'の場合に必須）
+        SUPABASE_SERVICE_ROLE_KEY: Supabaseサービスロールキー（SESSION_TYPE='supabase'の場合に必須）
         SESSIONS_DIR: ファイルベースの場合のセッションディレクトリ
 
     Returns:
@@ -177,7 +355,16 @@ def create_session_manager() -> SessionManager:
     """
     session_type = os.getenv('SESSION_TYPE', 'file').lower()
 
-    if session_type == 'redis':
+    if session_type == 'supabase':
+        supabase_url = os.getenv('SUPABASE_URL')
+        supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+        if not supabase_url or not supabase_key:
+            raise ValueError(
+                "SESSION_TYPE='supabase'の場合、SUPABASE_URLとSUPABASE_SERVICE_ROLE_KEY環境変数が必要です。"
+            )
+        return SupabaseSessionManager(supabase_url, supabase_key)
+
+    elif session_type == 'redis':
         redis_url = os.getenv('REDIS_URL')
         if not redis_url:
             raise ValueError(
