@@ -13,8 +13,10 @@ import {
   sendFamilyMessage,
 } from '@/lib/api';
 import { ConversationMessage } from '@/lib/types';
+import { useAuth } from '@/lib/auth-context';
 
 export default function FamilyConversationPage() {
+  const { user } = useAuth();
   const params = useParams();
   const router = useRouter();
   const sessionId = params.sessionId as string;
@@ -35,7 +37,7 @@ export default function FamilyConversationPage() {
   useEffect(() => {
     const loadFamilyConversation = async () => {
       try {
-        const status = await getFamilyStatus(sessionId);
+        const status = await getFamilyStatus(sessionId, !!user); // 認証必要
         const history = status.conversation_history || [];
         const mapped: ConversationMessage[] = history.map((entry) => ({
           speaker: entry.speaker || 'family',
@@ -77,7 +79,7 @@ export default function FamilyConversationPage() {
     setMessages((prev) => [...prev, userMessage]);
 
     try {
-      const response = await sendFamilyMessage(sessionId, message);
+      const response = await sendFamilyMessage(sessionId, message, !!user); // 認証はオプション
       const replies = response.reply || [];
       const mappedReplies: ConversationMessage[] = replies.map((reply) => ({
         speaker: reply.speaker || 'family',
