@@ -29,6 +29,7 @@ from utils.logger import setup_logger
 from utils.env_validator import validate_env
 from utils.session_manager import get_session_manager, SessionManager
 from utils.storage_manager import create_storage_manager, StorageManager
+from utils.auth_middleware import require_auth, optional_auth
 
 # 環境変数を読み込み
 load_dotenv()
@@ -378,15 +379,29 @@ def get_family_session(session_id: str) -> FamilyConversationSession:
 
 # 1. セッション新規作成
 @app.route('/api/sessions', methods=['POST'])
+@optional_auth
 def create_session():
     session_id = str(uuid.uuid4())
+    user_id = getattr(request, 'user_id', None)  # JWTから取得（オプション）
 
     # セッション初期化（session_mgr使用）
     try:
         save_session_data(session_id, 'user_profile', {})
         save_session_data(session_id, 'conversation_history', [])
         save_session_data(session_id, 'created_at', datetime.now().isoformat())
-        logger.info(f"セッション作成: {session_id}")
+
+        # Supabase使用時: user_idをsessionsテーブルに設定
+        from utils.session_manager import SupabaseSessionManager
+        if isinstance(session_mgr, SupabaseSessionManager) and user_id:
+            try:
+                session_mgr.client.table('sessions').update({
+                    'user_id': user_id
+                }).eq('session_id', session_id).execute()
+                logger.info(f"セッション作成（user_id={user_id}）: {session_id}")
+            except Exception as e:
+                logger.warning(f"user_id更新失敗: {e}")
+        else:
+            logger.info(f"セッション作成（ゲストモード）: {session_id}")
     except Exception as e:
         logger.error(f"セッション作成エラー: {session_id} - {e}")
         return jsonify({'error': 'セッション作成に失敗しました'}), 500
@@ -409,6 +424,7 @@ def create_session():
 
 # 2. メッセージ送信 & ヒアリング進行
 @app.route('/api/sessions/<session_id>/messages', methods=['POST'])
+@optional_auth
 def send_message(session_id):
     req = request.get_json()
     if not req or 'message' not in req:
@@ -471,6 +487,7 @@ def send_message(session_id):
 
 # 3. 進捗・履歴・プロフィール取得
 @app.route('/api/sessions/<session_id>/status', methods=['GET'])
+@optional_auth
 def get_status(session_id):
     # セッション存在確認
     if not session_exists(session_id):
@@ -495,6 +512,7 @@ def get_status(session_id):
 
 # 4. セッション完了（必須情報充足/保存・family_agent転送準備）
 @app.route('/api/sessions/<session_id>/complete', methods=['POST'])
+@optional_auth
 def complete_session(session_id):
     # セッション存在確認
     if not session_exists(session_id):
@@ -539,6 +557,7 @@ def complete_session(session_id):
 
 # --- 家族エージェント連携API ---
 @app.route('/api/sessions/<session_id>/family/status', methods=['GET'])
+@optional_auth
 def get_family_status_api(session_id):
     try:
         session = get_family_session(session_id)
@@ -550,6 +569,7 @@ def get_family_status_api(session_id):
 
 
 @app.route('/api/sessions/<session_id>/family/messages', methods=['POST'])
+@optional_auth
 def send_family_message(session_id):
     req = request.get_json() or {}
     user_message = req.get('message')

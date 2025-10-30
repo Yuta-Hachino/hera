@@ -10,9 +10,10 @@ import ProfileProgress from '@/components/ProfileProgress';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { sendMessage, getSessionStatus, completeSession } from '@/lib/api';
 import { ConversationMessage, InformationProgress } from '@/lib/types';
-import { withAuth } from '@/lib/with-auth';
+import { useAuth } from '@/lib/auth-context';
 
-function ChatPage() {
+export default function ChatPage() {
+  const { user } = useAuth();
   const params = useParams();
   const router = useRouter();
   const sessionId = params.sessionId as string;
@@ -34,7 +35,7 @@ function ChatPage() {
   useEffect(() => {
     const loadSession = async () => {
       try {
-        const status = await getSessionStatus(sessionId, true); // 認証必要
+        const status = await getSessionStatus(sessionId, !!user); // 認証必要
         setMessages(status.conversation_history || []);
         setProgress(status.information_progress || {});
         setIsComplete(status.profile_complete || false);
@@ -72,7 +73,7 @@ function ChatPage() {
     setMessages((prev) => [...prev, userMessage]);
 
     try {
-      const response = await sendMessage(sessionId, message, true); // 認証必要
+      const response = await sendMessage(sessionId, message, !!user); // 認証はオプション
 
       // 家族エージェントの応答を処理
       if (response.reply && typeof response.reply === 'string') {
@@ -143,7 +144,7 @@ function ChatPage() {
     setIsCompleting(true);
     setError(null);
     try {
-      await completeSession(sessionId, true); // 認証必要
+      await completeSession(sessionId, !!user); // 認証はオプション
       router.push(`/family/${sessionId}`);
     } catch (err) {
       setError(
@@ -262,5 +263,3 @@ function ChatPage() {
     </BackgroundLayout>
   );
 }
-
-export default withAuth(ChatPage);
