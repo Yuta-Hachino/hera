@@ -632,6 +632,11 @@ def complete_session(session_id):
     except Exception as e:
         logger.warning(f"家族エージェント初期化に失敗しました: {e}")
 
+    # セッション完了フラグを保存
+    save_session_data(session_id, 'completed', True)
+    save_session_data(session_id, 'completed_at', datetime.now().isoformat())
+    logger.info(f"セッション完了: {session_id}")
+
     return jsonify({
         'message': '収集が完了しました。ありがとうございました。',
         'user_profile': profile_pruned,
