@@ -145,6 +145,12 @@ class FirebaseSessionManager(SessionManager):
                             meta_ref = session_ref.collection('metadata').document(key)
                             meta_ref.set({'value': value})
 
+                            # family_planの場合、letterとfamily_image_urlを抽出してメインドキュメントに保存
+                            if key == 'family_plan' and isinstance(value, dict):
+                                if 'letter' in value:
+                                    session_ref.update({'letter': value['letter']})
+                                # family_image_urlは家族写真のURL（後で画像生成時に保存される）
+
                 # 更新日時を更新
                 session_ref.update({'updatedAt': datetime.now().isoformat()})
             except Exception as e:

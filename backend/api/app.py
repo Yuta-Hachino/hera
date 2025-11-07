@@ -618,6 +618,10 @@ def complete_session(session_id):
     # ユーザーデータの同期（ログインユーザーのみ）
     user_id = getattr(request, 'user_id', None)
     if user_id:
+        # セッションにuser_idを保存（クエリで検索できるように）
+        save_session_data(session_id, 'user_id', user_id)
+        logger.info(f"セッションにuser_idを保存: {user_id}")
+
         try:
             _sync_user_data_from_profile(user_id, profile_pruned)
             logger.info(f"ユーザーデータを同期しました: user_id={user_id}, session={session_id}")
