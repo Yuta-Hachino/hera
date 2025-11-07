@@ -78,6 +78,7 @@ module "backend" {
     STORAGE_MODE            = "firebase"
     FLASK_DEBUG             = "False"
     ALLOWED_ORIGINS         = "*"  # Will be updated in Phase 3 with actual Frontend URL
+    FIREBASE_PROJECT_ID     = var.firebase_project_id
     FIREBASE_STORAGE_BUCKET = var.firebase_storage_bucket
   }
 

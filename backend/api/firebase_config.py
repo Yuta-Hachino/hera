@@ -34,19 +34,24 @@ def initialize_firebase():
         # サービスアカウントキーのパスを取得
         service_account_path = os.getenv('FIREBASE_SERVICE_ACCOUNT_PATH')
 
+        # Firebase Project ID（認証トークン検証用）
+        firebase_project_id = os.getenv('FIREBASE_PROJECT_ID', 'test-6554c')
+
         if service_account_path and os.path.exists(service_account_path):
             # サービスアカウントキーで初期化
             cred = credentials.Certificate(service_account_path)
             firebase_admin.initialize_app(cred, {
+                'projectId': firebase_project_id,
                 'storageBucket': os.getenv('FIREBASE_STORAGE_BUCKET', '')
             })
-            print("✅ Firebase initialized with service account")
+            print(f"✅ Firebase initialized with service account (project: {firebase_project_id})")
         else:
             # デフォルト認証で初期化（Cloud Run環境など）
             firebase_admin.initialize_app(options={
+                'projectId': firebase_project_id,
                 'storageBucket': os.getenv('FIREBASE_STORAGE_BUCKET', '')
             })
-            print("✅ Firebase initialized with default credentials")
+            print(f"✅ Firebase initialized with default credentials (project: {firebase_project_id})")
 
         # Firestoreクライアント取得
         _db = firestore.client()
