@@ -10,7 +10,7 @@ import ProfileProgress from '@/components/ProfileProgress';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { sendMessage, getSessionStatus, completeSession } from '@/lib/api';
 import { ConversationMessage, InformationProgress } from '@/lib/types';
-import { useAuth } from '@/lib/auth-context';
+import { useAuth } from '@/lib/auth-context-firebase';
 
 export default function ChatPage() {
   const { user } = useAuth();

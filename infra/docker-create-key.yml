@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  create-key:
+    image: google/cloud-sdk:latest
+    container_name: hera-create-key
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace
+      - ~/.config/gcloud:/root/.config/gcloud
+    environment:
+      - CLOUDSDK_CORE_PROJECT=gen-lang-client-0830629645
+    command:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        echo 'サービスアカウントキーを作成中...'
+        gcloud iam service-accounts keys create /workspace/infra/gcp-deploy-key.json --iam-account=hera-deploy@gen-lang-client-0830629645.iam.gserviceaccount.com --project=gen-lang-client-0830629645
+        echo '✓ キー作成完了'
+        ls -la /workspace/infra/gcp-deploy-key.json

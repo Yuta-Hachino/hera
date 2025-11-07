@@ -279,6 +279,12 @@ def create_storage_manager() -> StorageManager:
         from config import get_sessions_dir
         return LocalStorageManager(get_sessions_dir())
 
+    elif storage_mode == 'gcs' or storage_mode == 'firebase':
+        # Firebase/GCS統合ストレージマネージャーを使用
+        # Firebaseの場合は認証情報が自動で利用される
+        from api.storage.gcs_storage import GCSStorageManager as FirebaseStorageManager
+        return FirebaseStorageManager()
+
     elif storage_mode == 'cloud':
         redis_url = os.getenv('REDIS_URL')
         if not redis_url:

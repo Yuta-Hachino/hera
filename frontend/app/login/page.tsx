@@ -6,8 +6,8 @@
  */
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { signInWithGoogle } from '@/lib/supabase'
-import { useAuth } from '@/lib/auth-context'
+import { signInWithGoogle } from '@/lib/firebase-auth'
+import { useAuth } from '@/lib/auth-context-firebase'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -26,7 +26,8 @@ export default function LoginPage() {
     try {
       setIsLoggingIn(true)
       setError(null)
-      await signInWithGoogle('/dashboard')
+      await signInWithGoogle()
+      // Firebase auth context will handle redirect after successful login
     } catch (err) {
       console.error('Login error:', err)
       setError('ログインに失敗しました。もう一度お試しください。')

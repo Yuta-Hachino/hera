@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  setup:
+    image: google/cloud-sdk:latest
+    container_name: hera-setup
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace
+    environment:
+      - CLOUDSDK_CORE_PROJECT=gen-lang-client-0830629645
+    stdin_open: true
+    tty: true
+    command: /bin/bash -c "
+      set -e &&
+
+      PROJECT_ID='gen-lang-client-0830629645' &&
+      SA_NAME='hera-deploy' &&
+      SA_EMAIL=\${SA_NAME}@\${PROJECT_ID}.iam.gserviceaccount.com &&
+      KEY_FILE='/workspace/infra/gcp-deploy-key.json' &&
+
+      echo '========================================' &&
+      echo 'サービスアカウント自動セットアップ' &&
+      echo '========================================' &&
+      echo '' &&
+
+      echo 'Google Cloud にログインしてください...' &&
+      gcloud auth login --no-launch-browser &&
+
+      echo '' &&
+      echo 'プロジェクトを設定中...' &&
+      gcloud config set project \$PROJECT_ID &&
+      echo '✓ プロジェクト設定完了' &&
+      echo '' &&
+
+      echo 'サービスアカウントを確認中...' &&
+      if gcloud iam service-accounts describe \$SA_EMAIL --project=\$PROJECT_ID > /dev/null 2>&1; then
+        echo '✓ サービスアカウント already exists'
+      else
+        echo 'サービスアカウントを作成中...' &&
+        gcloud iam service-accounts create \$SA_NAME \
+          --display-name='Hera Deploy Service Account' \
+          --project=\$PROJECT_ID &&
+        echo '✓ サービスアカウント作成完了'
+      fi &&
+      echo '' &&
+
+      echo 'IAM権限を付与中...' &&
+      for ROLE in \
+        roles/run.admin \
+        roles/iam.serviceAccountUser \
+        roles/storage.admin \
+        roles/artifactregistry.admin \
+        roles/secretmanager.admin \
+        roles/cloudbuild.builds.editor \
+        roles/iam.securityAdmin; do
+        echo \"  - \$ROLE を付与中...\" &&
+        gcloud projects add-iam-policy-binding \$PROJECT_ID \
+          --member=\"serviceAccount:\${SA_EMAIL}\" \
+          --role=\"\$ROLE\" \
+          --quiet > /dev/null 2>&1
+      done &&
+      echo '✓ IAM権限付与完了' &&
+      echo '' &&
+
+      echo 'サービスアカウントキーを作成中...' &&
+      if [ -f \"\$KEY_FILE\" ]; then
+        echo '⚠ 既存のキーファイルが見つかりました。上書きします。' &&
+        rm \$KEY_FILE
+      fi &&
+      gcloud iam service-accounts keys create \$KEY_FILE \
+        --iam-account=\$SA_EMAIL \
+        --project=\$PROJECT_ID &&
+      echo '✓ サービスアカウントキー作成完了' &&
+      echo '' &&
+
+      echo '========================================' &&
+      echo 'セットアップ完了！' &&
+      echo '========================================' &&
+      echo '' &&
+      echo 'サービスアカウント:' \$SA_EMAIL &&
+      echo 'キーファイル:' \$KEY_FILE &&
+      echo '' &&
+      echo '次のステップ:' &&
+      echo '  cd /Users/user/dev/hera/infra' &&
+      echo '  ./auto-deploy.sh' &&
+      echo ''
+    "

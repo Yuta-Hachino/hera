@@ -12,25 +12,33 @@ services:
     ports:
       - "8080:8080"
     environment:
+      # Gemini API
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=gemini-pro
+
+      # Firebase/GCP設定
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - FIREBASE_SERVICE_ACCOUNT_PATH=/app/service-account-key.json
+      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
+      - FIREBASE_STORAGE_BUCKET=${FIREBASE_STORAGE_BUCKET}
+
+      # セッションとストレージモード
+      - SESSION_TYPE=firebase
+      - STORAGE_MODE=firebase
+      - FIREBASE_MOCK=false
+
+      # Flask設定
       - FLASK_DEBUG=False
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - REDIS_URL=redis://redis:6379/0
-      - STORAGE_MODE=redis
-      - SESSIONS_DIR=/app/tmp/user_sessions
-      - ALLOWED_ORIGINS=http://localhost:3000,http://frontend:3000
       - PORT=8080
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ALLOWED_ORIGINS=http://localhost:3000,http://frontend:3000
     volumes:
-      # セッションデータの永続化（画像用）
-      - backend-sessions:/app/tmp/user_sessions
+      # Firebase認証キー（ローカル開発用）
+      - ./backend/service-account-key.json:/app/service-account-key.json:ro
       # ログの永続化
       - backend-logs:/app/logs
-      # 開発時のホットリロード用（本番では削除推奨）
-      - ./backend:/app:ro
     networks:
       - hera-network
-    depends_on:
-      - redis
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
       interval: 30s
@@ -49,16 +57,25 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # Gemini API
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - PYTHONPATH=/app
-      - REDIS_URL=redis://redis:6379/0
-      - STORAGE_MODE=redis
-      - SESSIONS_DIR=/app/tmp/user_sessions
+
+      # Firebase/GCP設定
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - FIREBASE_SERVICE_ACCOUNT_PATH=/app/service-account-key.json
+      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
+      - FIREBASE_STORAGE_BUCKET=${FIREBASE_STORAGE_BUCKET}
+
+      # セッションとストレージモード
+      - SESSION_TYPE=firebase
+      - STORAGE_MODE=firebase
+      - FIREBASE_MOCK=false
     volumes:
       - ./backend:/app
-      # backendと同じセッションボリュームを共有（画像用）
-      - backend-sessions:/app/tmp/user_sessions
-      # ログも共有（オプション）
+      # Firebase認証キー
+      - ./backend/service-account-key.json:/app/service-account-key.json:ro
+      # ログ
       - backend-logs:/app/logs
     networks:
       - hera-network
@@ -76,27 +93,6 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
-      - redis
-
-  # ============================================
-  # Redis (セッション管理)
-  # ============================================
-  redis:
-    image: redis:7-alpine
-    container_name: hera-redis-local
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    networks:
-      - hera-network
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-    restart: unless-stopped
 
   # ============================================
   # フロントエンド (Next.js)
@@ -106,12 +102,30 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL=http://localhost:8080
+        # Firebase設定（ビルド時）
+        NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY}
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID}
+        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET}
+        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}
+        NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID}
+        NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID}
+        NEXT_PUBLIC_API_URL: http://localhost:8080
+        NEXT_PUBLIC_FIREBASE_MOCK: "false"
     container_name: hera-frontend
     ports:
       - "3000:3000"
     environment:
+      # Firebase設定（ランタイム）
+      - NEXT_PUBLIC_FIREBASE_API_KEY=${NEXT_PUBLIC_FIREBASE_API_KEY}
+      - NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}
+      - NEXT_PUBLIC_FIREBASE_PROJECT_ID=${NEXT_PUBLIC_FIREBASE_PROJECT_ID}
+      - NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET}
+      - NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}
+      - NEXT_PUBLIC_FIREBASE_APP_ID=${NEXT_PUBLIC_FIREBASE_APP_ID}
+      - NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=${NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID}
       - NEXT_PUBLIC_API_URL=http://localhost:8080
+      - NEXT_PUBLIC_FIREBASE_MOCK=false
       - NODE_ENV=production
     networks:
       - hera-network
@@ -124,11 +138,7 @@ services:
 # ボリューム定義
 # ============================================
 volumes:
-  backend-sessions:
-    driver: local
   backend-logs:
-    driver: local
-  redis-data:
     driver: local
 
 # ============================================

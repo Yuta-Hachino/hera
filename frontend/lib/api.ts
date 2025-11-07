@@ -6,7 +6,7 @@ import {
   FamilyMessageResponse,
   FamilyStatusResponse,
 } from './types';
-import { getAccessToken } from './supabase';
+import { getIdToken } from './firebase-auth';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -28,14 +28,14 @@ async function fetchApi<T>(
   const { requireAuth = false, ...fetchOptions } = options || {};
   const url = `${API_URL}${endpoint}`;
 
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...fetchOptions?.headers,
+    ...(fetchOptions?.headers as Record<string, string>),
   };
 
-  // 認証が必要な場合はJWTトークンを付与
+  // 認証が必要な場合はFirebase IDトークンを付与
   if (requireAuth) {
-    const token = await getAccessToken();
+    const token = await getIdToken();
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }

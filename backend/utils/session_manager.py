@@ -344,10 +344,11 @@ def create_session_manager() -> SessionManager:
     環境変数に基づいてセッションマネージャーを作成
 
     環境変数:
-        SESSION_TYPE: 'file', 'redis', 'supabase' (デフォルト: 'file')
+        SESSION_TYPE: 'file', 'redis', 'supabase', 'firebase' (デフォルト: 'file')
         REDIS_URL: RedisのURL（SESSION_TYPE='redis'の場合に必須）
         SUPABASE_URL: SupabaseプロジェクトのURL（SESSION_TYPE='supabase'の場合に必須）
         SUPABASE_SERVICE_ROLE_KEY: Supabaseサービスロールキー（SESSION_TYPE='supabase'の場合に必須）
+        FIREBASE_MOCK: FirebaseをMockモードで実行するか（SESSION_TYPE='firebase'の場合）
         SESSIONS_DIR: ファイルベースの場合のセッションディレクトリ
 
     Returns:
@@ -355,7 +356,13 @@ def create_session_manager() -> SessionManager:
     """
     session_type = os.getenv('SESSION_TYPE', 'file').lower()
 
-    if session_type == 'supabase':
+    if session_type == 'firebase':
+        # Firebase/Firestoreベースのセッションマネージャーを使用
+        # api.session.firebase_session_manager のクラスを直接インポート
+        from api.session.firebase_session_manager import FirebaseSessionManager as FBSessionManager
+        return FBSessionManager()
+
+    elif session_type == 'supabase':
         supabase_url = os.getenv('SUPABASE_URL')
         supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
         if not supabase_url or not supabase_key:

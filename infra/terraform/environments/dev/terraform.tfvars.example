@@ -1,0 +1,31 @@
+# ==================================================
+# Hera - Development Environment
+# ==================================================
+
+# GCP Project Configuration
+project_id  = "your-gcp-project-id-dev"
+region      = "asia-northeast1"
+environment = "dev"
+
+# Gemini API
+gemini_api_key = "your-gemini-api-key"
+
+# Firebase Configuration
+firebase_api_key              = "your-firebase-api-key"
+firebase_auth_domain          = "your-project-dev.firebaseapp.com"
+firebase_project_id           = "your-firebase-project-id-dev"
+firebase_storage_bucket       = "your-project-dev.appspot.com"
+firebase_messaging_sender_id  = "your-sender-id"
+firebase_app_id               = "your-app-id"
+
+# Cloud Run Resource Configuration
+backend_memory  = "512Mi"  # Dev: Smaller resources
+backend_cpu     = "1"
+frontend_memory = "512Mi"
+frontend_cpu    = "1"
+adk_memory      = "1Gi"
+adk_cpu         = "1"
+
+# Scaling Configuration
+min_instances = 0  # Dev: Scale to zero when not in use
+max_instances = 5

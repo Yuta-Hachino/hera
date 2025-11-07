@@ -13,7 +13,7 @@ import {
   sendFamilyMessage,
 } from '@/lib/api';
 import { ConversationMessage } from '@/lib/types';
-import { useAuth } from '@/lib/auth-context';
+import { useAuth } from '@/lib/auth-context-firebase';
 
 export default function FamilyConversationPage() {
   const { user } = useAuth();

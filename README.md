@@ -187,7 +187,9 @@ docker-compose up --build
 # Google ADK開発UI: http://localhost:8000
 ```
 
-詳細は [DOCKER.md](DOCKER.md) を参照してください。
+詳細は [docs/deployment/DOCKER.md](docs/deployment/DOCKER.md) を参照してください。
+
+**デプロイメントガイド**: [docs/deployment/DEPLOYMENT.md](docs/deployment/DEPLOYMENT.md)も参照してください（Docker、Cloud Run対応）。
 
 ### ⚙️ ローカル環境で実行する場合
 
@@ -249,6 +251,19 @@ curl http://localhost:8080/api/sessions/{session_id}/status
 ```
 
 詳しくは [backend/README.md](backend/README.md) をご覧ください。
+
+---
+
+## 📚 ドキュメント
+
+プロジェクトの詳細なドキュメントは `docs/` ディレクトリに整理されています：
+
+- **[デプロイメント](docs/deployment/)** - Docker、Cloud Run、Vercelへのデプロイ方法
+- **[アーキテクチャ](docs/architecture/)** - システム設計、統合計画、アーキテクチャ図
+- **[移行](docs/migration/)** - GCP移行計画、Redis/Supabase移行ガイド
+- **[レポート](docs/reports/)** - 分析レポート、実装ギャップ、修正履歴
+
+詳細は [docs/README.md](docs/README.md) を参照してください。
 
 ---
 

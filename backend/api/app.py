@@ -390,16 +390,10 @@ def create_session():
         save_session_data(session_id, 'conversation_history', [])
         save_session_data(session_id, 'created_at', datetime.now().isoformat())
 
-        # Supabase使用時: user_idをsessionsテーブルに設定
-        from utils.session_manager import SupabaseSessionManager
-        if isinstance(session_mgr, SupabaseSessionManager) and user_id:
-            try:
-                session_mgr.client.table('sessions').update({
-                    'user_id': user_id
-                }).eq('session_id', session_id).execute()
-                logger.info(f"セッション作成（user_id={user_id}）: {session_id}")
-            except Exception as e:
-                logger.warning(f"user_id更新失敗: {e}")
+        # Firebase使用時: user_idをセッションに設定
+        if user_id:
+            save_session_data(session_id, 'user_id', user_id)
+            logger.info(f"セッション作成（user_id={user_id}）: {session_id}")
         else:
             logger.info(f"セッション作成（ゲストモード）: {session_id}")
     except Exception as e:
@@ -510,6 +504,86 @@ def get_status(session_id):
         'profile_complete': len(missing_fields) == 0
     })
 
+def _sync_user_data_from_profile(user_id: str, profile: dict):
+    """
+    セッション完了時にユーザープロファイルからusersコレクションにデータを同期
+    - 基本情報（age, location, personality_traits）を更新
+    - 特性情報からタグを抽出して追加
+    """
+    db = firestore.client()
+    user_ref = db.collection('users').document(user_id)
+
+    # 基本情報の更新
+    update_data = {
+        'updated_at': firestore.SERVER_TIMESTAMP
+    }
+
+    # age, location, personality_traitsを同期
+    if profile.get('age'):
+        update_data['age'] = profile['age']
+    if profile.get('location'):
+        update_data['location'] = profile['location']
+    if profile.get('user_personality_traits'):
+        update_data['personality_traits'] = profile['user_personality_traits']
+
+    # タグの抽出
+    extracted_tags = []
+
+    # 1. 趣味・興味からタグを抽出
+    if profile.get('interests') and isinstance(profile['interests'], list):
+        for interest in profile['interests']:
+            if isinstance(interest, str) and interest.strip():
+                extracted_tags.append(interest.strip())
+
+    # 2. 仕事スタイルからタグを抽出
+    if profile.get('work_style') and isinstance(profile['work_style'], str):
+        extracted_tags.append(f"仕事: {profile['work_style'].strip()}")
+
+    # 3. 将来のキャリアからタグを抽出
+    if profile.get('future_career') and isinstance(profile['future_career'], str):
+        extracted_tags.append(f"将来: {profile['future_career'].strip()}")
+
+    # 4. 性格特性（Big Five）からタグを抽出
+    if profile.get('user_personality_traits') and isinstance(profile['user_personality_traits'], dict):
+        personality_labels = {
+            'openness': '開放性',
+            'conscientiousness': '誠実性',
+            'extraversion': '外向性',
+            'agreeableness': '協調性',
+            'neuroticism': '神経症傾向'
+        }
+        for trait, value in profile['user_personality_traits'].items():
+            if isinstance(value, (int, float)) and value > 0.6:  # 高い特性のみタグ化
+                label = personality_labels.get(trait, trait)
+                extracted_tags.append(f"性格: {label}")
+
+    # 5. ライフスタイルからタグを抽出
+    if profile.get('lifestyle') and isinstance(profile['lifestyle'], dict):
+        for key, value in profile['lifestyle'].items():
+            if value and isinstance(value, str):
+                extracted_tags.append(f"{key}: {value}")
+
+    # タグの追加（重複なし）
+    if extracted_tags:
+        update_data['tags'] = firestore.ArrayUnion(extracted_tags)
+
+    # ユーザー情報を取得または作成
+    user_doc = user_ref.get()
+    if not user_doc.exists:
+        # 新規作成
+        update_data['uid'] = user_id
+        update_data['created_at'] = firestore.SERVER_TIMESTAMP
+        if 'tags' in update_data:
+            # ArrayUnionは新規作成時に使えないので、配列に変換
+            update_data['tags'] = extracted_tags
+        user_ref.set(update_data)
+        logger.info(f"新規ユーザー作成 & データ同期: {user_id}")
+    else:
+        # 既存ユーザーの更新
+        user_ref.update(update_data)
+        logger.info(f"既存ユーザーのデータ同期: {user_id}")
+
+
 # 4. セッション完了（必須情報充足/保存・family_agent転送準備）
 @app.route('/api/sessions/<session_id>/complete', methods=['POST'])
 @optional_auth
@@ -536,6 +610,15 @@ def complete_session(session_id):
             'missing_fields': missing_fields,
             'information_complete': False
         }), 400
+
+    # ユーザーデータの同期（ログインユーザーのみ）
+    user_id = getattr(request, 'user_id', None)
+    if user_id:
+        try:
+            _sync_user_data_from_profile(user_id, profile_pruned)
+            logger.info(f"ユーザーデータを同期しました: user_id={user_id}, session={session_id}")
+        except Exception as e:
+            logger.warning(f"ユーザーデータの同期に失敗しました: {e}")
 
     # 家族エージェントの準備を先行実行（ペルソナ生成など）
     try:
@@ -595,6 +678,287 @@ def send_family_message(session_id):
 @app.route('/api/health', methods=['GET'])
 def health():
     return jsonify({'status': 'ok'})
+
+# ユーザープロフィール取得
+@app.route('/api/profile', methods=['GET'])
+def get_user_profile():
+    """
+    ログインユーザーのプロフィール情報を取得
+    Firebase認証が必要
+    """
+    try:
+        # Firebase IDトークンからユーザー情報を取得
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'error': '認証が必要です'}), 401
+
+        id_token = auth_header.split('Bearer ')[1]
+
+        # Firebase Admin SDKをインポート
+        from firebase_admin import auth, firestore
+
+        decoded_token = auth.verify_id_token(id_token)
+        user_id = decoded_token.get('uid')
+        user_email = decoded_token.get('email')
+        user_name = decoded_token.get('name') or decoded_token.get('email', '').split('@')[0]
+        user_picture = decoded_token.get('picture')
+
+        # Firestoreから最新のセッション情報を取得してプロフィールを構築
+        db = firestore.client()
+        sessions_ref = db.collection('sessions')
+
+        # ユーザーのセッションを取得（最新順）
+        user_sessions = sessions_ref.where('user_id', '==', user_id).order_by('created_at', direction=firestore.Query.DESCENDING).limit(1).get()
+
+        profile_data = {
+            'name': user_name,
+            'email': user_email,
+            'picture': user_picture,
+            'age': None,
+            'location': None,
+            'personality_traits': None,
+            'user_image_path': None
+        }
+
+        # 最新のセッションからプロフィール情報を取得
+        if user_sessions:
+            session_doc = user_sessions[0]
+            session_data = session_doc.to_dict()
+            user_profile = session_data.get('user_profile', {})
+
+            if user_profile:
+                profile_data['age'] = user_profile.get('age')
+                profile_data['location'] = user_profile.get('location')
+                profile_data['personality_traits'] = user_profile.get('user_personality_traits')
+                profile_data['user_image_path'] = user_profile.get('user_image_path')
+                # プロフィールに名前がある場合は上書き
+                if user_profile.get('name'):
+                    profile_data['name'] = user_profile.get('name')
+
+        return jsonify(profile_data)
+
+    except Exception as e:
+        print(f"プロフィール取得エラー: {e}")
+        return jsonify({'error': 'プロフィール取得に失敗しました'}), 500
+
+# --- ユーザー管理API ---
+@app.route('/api/users/me', methods=['GET'])
+def get_user():
+    """ユーザー情報取得（usersコレクションから）"""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'error': '認証が必要です'}), 401
+
+        id_token = auth_header.split('Bearer ')[1]
+
+        from firebase_admin import auth, firestore
+
+        decoded_token = auth.verify_id_token(id_token)
+        user_id = decoded_token.get('uid')
+        db = firestore.client()
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+
+        if user_doc.exists:
+            return jsonify(user_doc.to_dict())
+        else:
+            # ユーザードキュメントが存在しない場合は作成
+            user_data = {
+                'uid': user_id,
+                'email': decoded_token.get('email'),
+                'name': decoded_token.get('name') or decoded_token.get('email', '').split('@')[0],
+                'picture': decoded_token.get('picture'),
+                'tags': [],
+                'created_at': firestore.SERVER_TIMESTAMP,
+                'updated_at': firestore.SERVER_TIMESTAMP
+            }
+            user_ref.set(user_data)
+            return jsonify(user_data)
+
+    except Exception as e:
+        print(f"ユーザー情報取得エラー: {e}")
+        return jsonify({'error': 'ユーザー情報取得に失敗しました'}), 500
+
+@app.route('/api/users/me', methods=['PUT'])
+def update_user():
+    """ユーザー情報更新"""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'error': '認証が必要です'}), 401
+
+        id_token = auth_header.split('Bearer ')[1]
+        decoded_token = auth.verify_id_token(id_token)
+        user_id = decoded_token.get('uid')
+
+        data = request.get_json()
+
+        from firebase_admin import auth, firestore
+        db = firestore.client()
+        user_ref = db.collection('users').document(user_id)
+
+        # 更新可能なフィールドのみ許可
+        allowed_fields = ['name', 'age', 'location', 'personality_traits']
+        update_data = {k: v for k, v in data.items() if k in allowed_fields}
+        update_data['updated_at'] = firestore.SERVER_TIMESTAMP
+
+        user_ref.update(update_data)
+
+        return jsonify({'status': 'success', 'message': 'ユーザー情報を更新しました'})
+
+    except Exception as e:
+        print(f"ユーザー情報更新エラー: {e}")
+        return jsonify({'error': 'ユーザー情報更新に失敗しました'}), 500
+
+@app.route('/api/users/me/tags', methods=['POST'])
+def add_user_tag():
+    """ユーザータグ追加"""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'error': '認証が必要です'}), 401
+
+        id_token = auth_header.split('Bearer ')[1]
+        decoded_token = auth.verify_id_token(id_token)
+        user_id = decoded_token.get('uid')
+
+        data = request.get_json()
+        tag = data.get('tag')
+
+        if not tag:
+            return jsonify({'error': 'タグが指定されていません'}), 400
+
+        from firebase_admin import auth, firestore
+        db = firestore.client()
+        user_ref = db.collection('users').document(user_id)
+
+        # ArrayUnionを使用して重複なく追加
+        user_ref.update({
+            'tags': firestore.ArrayUnion([tag]),
+            'updated_at': firestore.SERVER_TIMESTAMP
+        })
+
+        return jsonify({'status': 'success', 'message': 'タグを追加しました'})
+
+    except Exception as e:
+        print(f"タグ追加エラー: {e}")
+        return jsonify({'error': 'タグ追加に失敗しました'}), 500
+
+@app.route('/api/users/me/tags', methods=['DELETE'])
+def delete_user_tag():
+    """ユーザータグ削除"""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'error': '認証が必要です'}), 401
+
+        id_token = auth_header.split('Bearer ')[1]
+        decoded_token = auth.verify_id_token(id_token)
+        user_id = decoded_token.get('uid')
+
+        data = request.get_json()
+        tag = data.get('tag')
+
+        if not tag:
+            return jsonify({'error': 'タグが指定されていません'}), 400
+
+        from firebase_admin import auth, firestore
+        db = firestore.client()
+        user_ref = db.collection('users').document(user_id)
+
+        # ArrayRemoveを使用して削除
+        user_ref.update({
+            'tags': firestore.ArrayRemove([tag]),
+            'updated_at': firestore.SERVER_TIMESTAMP
+        })
+
+        return jsonify({'status': 'success', 'message': 'タグを削除しました'})
+
+    except Exception as e:
+        print(f"タグ削除エラー: {e}")
+        return jsonify({'error': 'タグ削除に失敗しました'}), 500
+
+@app.route('/api/users/me/artifacts', methods=['GET'])
+def get_user_artifacts():
+    """ユーザーの生成物一覧取得"""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'error': '認証が必要です'}), 401
+
+        id_token = auth_header.split('Bearer ')[1]
+
+        from firebase_admin import auth, firestore
+
+        decoded_token = auth.verify_id_token(id_token)
+        user_id = decoded_token.get('uid')
+        db = firestore.client()
+
+        # ユーザーのセッションを取得
+        sessions_ref = db.collection('sessions')
+        user_sessions = sessions_ref.where('user_id', '==', user_id).order_by('created_at', direction=firestore.Query.DESCENDING).get()
+
+        artifacts = []
+        for session_doc in user_sessions:
+            session_data = session_doc.to_dict()
+            session_id = session_doc.id
+
+            # 完了したセッションのみ
+            if session_data.get('completed'):
+                artifact = {
+                    'session_id': session_id,
+                    'created_at': session_data.get('created_at'),
+                    'letter': session_data.get('letter'),
+                    'images': {
+                        'partner': session_data.get('user_profile', {}).get('partner_image_path'),
+                        'children': session_data.get('user_profile', {}).get('children_images', [])
+                    },
+                    'trip_plan': session_data.get('family_trip_info')
+                }
+                artifacts.append(artifact)
+
+        return jsonify({'artifacts': artifacts})
+
+    except Exception as e:
+        print(f"生成物一覧取得エラー: {e}")
+        return jsonify({'error': '生成物一覧取得に失敗しました'}), 500
+
+@app.route('/api/users/me/artifacts/<session_id>', methods=['DELETE'])
+def delete_user_artifact(session_id):
+    """ユーザーの生成物削除"""
+    try:
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'error': '認証が必要です'}), 401
+
+        id_token = auth_header.split('Bearer ')[1]
+
+        from firebase_admin import auth, firestore
+
+        decoded_token = auth.verify_id_token(id_token)
+        user_id = decoded_token.get('uid')
+        db = firestore.client()
+
+        # セッションの所有者確認
+        session_ref = db.collection('sessions').document(session_id)
+        session_doc = session_ref.get()
+
+        if not session_doc.exists:
+            return jsonify({'error': 'セッションが存在しません'}), 404
+
+        session_data = session_doc.to_dict()
+        if session_data.get('user_id') != user_id:
+            return jsonify({'error': '権限がありません'}), 403
+
+        # セッションを削除
+        session_ref.delete()
+
+        return jsonify({'status': 'success', 'message': '生成物を削除しました'})
+
+    except Exception as e:
+        print(f"生成物削除エラー: {e}")
+        return jsonify({'error': '生成物削除に失敗しました'}), 500
 
 # --- 画像アップロード/生成API ---
 UPLOAD_EXTENSIONS = {'.jpg', '.jpeg', '.png'}

@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  deploy:
+    image: google/cloud-sdk:latest
+    container_name: hera-deploy
+    working_dir: /workspace
+    volumes:
+      - ..:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - CLOUDSDK_CORE_PROJECT=gen-lang-client-0830629645
+      - CLOUDSDK_COMPUTE_REGION=asia-northeast1
+    command:
+      - /bin/bash
+      - /workspace/infra/deploy-script.sh

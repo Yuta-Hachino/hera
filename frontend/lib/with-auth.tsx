@@ -6,7 +6,7 @@
  */
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAuth } from './auth-context'
+import { useAuth } from './auth-context-firebase'
 
 export function withAuth<P extends object>(
   Component: React.ComponentType<P>

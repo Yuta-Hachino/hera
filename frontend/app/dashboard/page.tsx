@@ -4,113 +4,211 @@
  * ダッシュボードページ
  * ユーザーのセッション一覧と新規セッション作成
  */
-import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { withAuth } from '@/lib/with-auth'
-import { useAuth } from '@/lib/auth-context'
-import { createSession } from '@/lib/api-client'
+import Link from 'next/link'
+import { useState } from 'react'
 
 function DashboardPage() {
   const router = useRouter()
-  const { user, signOut } = useAuth()
-  const [isCreatingSession, setIsCreatingSession] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
 
-  const handleCreateSession = async () => {
-    try {
-      setIsCreatingSession(true)
-      setError(null)
-
-      // セッション作成（認証必要）
-      const response = await createSession(true)
-      const sessionId = response.session_id
-
-      // チャットページに遷移
-      router.push(`/chat/${sessionId}`)
-    } catch (err) {
-      console.error('Session creation error:', err)
-      setError('セッションの作成に失敗しました。もう一度お試しください。')
-      setIsCreatingSession(false)
-    }
-  }
-
-  const handleSignOut = async () => {
-    try {
-      await signOut()
-      router.push('/login')
-    } catch (err) {
-      console.error('Sign out error:', err)
-    }
+  const handleStartExperience = () => {
+    // start画面に遷移
+    router.push('/start')
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      {/* ヘッダー */}
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-gray-900">
-            AIファミリー・シミュレーター
-          </h1>
-          <div className="flex items-center gap-4">
-            <div className="text-sm text-gray-600">
-              {user?.email}
-            </div>
-            <button
-              onClick={handleSignOut}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 flex">
+      {/* サイドバー */}
+      <aside
+        className={`${
+          isSidebarOpen ? 'w-64' : 'w-0'
+        } bg-white shadow-xl transition-all duration-300 overflow-hidden flex flex-col`}
+      >
+        <div className="p-6">
+          <h2 className="text-xl font-bold text-gray-800 mb-6">メニュー</h2>
+
+          <nav className="space-y-2">
+            {/* Startページへのリンク */}
+            <Link
+              href="/start"
+              className="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-purple-50 transition group"
             >
-              ログアウト
-            </button>
+              <svg
+                className="w-5 h-5 text-purple-600 group-hover:text-purple-700"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M14 5l7 7m0 0l-7 7m7-7H3"
+                />
+              </svg>
+              <span className="text-gray-700 font-medium group-hover:text-purple-700">
+                体験を始める
+              </span>
+            </Link>
+
+            {/* 少子化対策への貢献ページへのリンク */}
+            <Link
+              href="/impact"
+              className="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-gradient-to-r hover:from-pink-50 hover:to-purple-50 transition group border-2 border-transparent hover:border-pink-200"
+            >
+              <svg
+                className="w-5 h-5 text-pink-600 group-hover:text-pink-700"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
+                />
+              </svg>
+              <span className="text-pink-700 font-bold group-hover:text-pink-800">
+                このアプリの意義
+              </span>
+            </Link>
+
+            {/* 規約ページへのリンク */}
+            <Link
+              href="/terms"
+              className="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-gray-50 transition group"
+            >
+              <svg
+                className="w-5 h-5 text-gray-600 group-hover:text-gray-700"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                />
+              </svg>
+              <span className="text-gray-700 font-medium group-hover:text-gray-800">
+                利用規約
+              </span>
+            </Link>
+
+            {/* プライバシーポリシーへのリンク */}
+            <Link
+              href="/privacy"
+              className="flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-gray-50 transition group"
+            >
+              <svg
+                className="w-5 h-5 text-gray-600 group-hover:text-gray-700"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                />
+              </svg>
+              <span className="text-gray-700 font-medium group-hover:text-gray-800">
+                プライバシーポリシー
+              </span>
+            </Link>
+          </nav>
+        </div>
+
+        {/* サイドバー下部の注意書き */}
+        <div className="mt-auto p-6 border-t border-gray-200">
+          <div className="text-xs text-gray-500 space-y-2">
+            <p className="font-semibold text-gray-700">⚠️ 重要なお知らせ</p>
+            <p>
+              本サービスは実験的なAIアプリケーションです。
+              発生したトラブルや損害について、運営者は一切の責任を負いません。
+            </p>
           </div>
         </div>
-      </header>
+      </aside>
+
+      {/* サイドバー切り替えボタン */}
+      <button
+        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+        className="fixed left-0 top-20 bg-white shadow-lg rounded-r-lg p-2 z-50 hover:bg-gray-50 transition"
+      >
+        <svg
+          className={`w-6 h-6 text-gray-600 transform transition-transform ${
+            isSidebarOpen ? '' : 'rotate-180'
+          }`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M15 19l-7-7 7-7"
+          />
+        </svg>
+      </button>
 
       {/* メインコンテンツ */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <main className="flex-1 px-4 sm:px-6 lg:px-8 py-12 overflow-auto">
         <div className="text-center mb-12">
-          <h2 className="text-3xl font-bold text-gray-900 mb-4">
+          <h2 className="text-4xl font-bold text-gray-900 mb-4">
             未来の家族を体験しましょう
           </h2>
-          <p className="text-lg text-gray-600">
+          <p className="text-xl text-gray-600">
             AIがあなたの理想の家族像を作り上げます
           </p>
         </div>
 
-        {error && (
-          <div className="max-w-md mx-auto mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-            {error}
-          </div>
-        )}
-
-        <div className="max-w-md mx-auto">
+        <div className="max-w-2xl mx-auto space-y-4">
           <button
-            onClick={handleCreateSession}
-            disabled={isCreatingSession}
-            className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg"
+            onClick={handleStartExperience}
+            className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-medium rounded-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 transition-all transform hover:scale-105 shadow-lg"
           >
-            {isCreatingSession ? (
-              <>
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                <span>セッション作成中...</span>
-              </>
-            ) : (
-              <>
-                <svg
-                  className="w-6 h-6"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                  />
-                </svg>
-                <span>新しいセッションを開始</span>
-              </>
-            )}
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M14 5l7 7m0 0l-7 7m7-7H3"
+              />
+            </svg>
+            <span>体験を始める</span>
+          </button>
+
+          {/* このアプリの意義へのボタン */}
+          <button
+            onClick={() => router.push('/impact')}
+            className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-pink-500 via-red-500 to-orange-500 text-white font-medium rounded-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 transition-all transform hover:scale-105 shadow-lg border-2 border-yellow-300"
+          >
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
+              />
+            </svg>
+            <span className="font-bold">このアプリの意義を知る - 少子化対策への貢献</span>
           </button>
         </div>
 
