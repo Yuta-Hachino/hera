@@ -107,9 +107,11 @@ class ADKHeraAgent:
     def __init__(
         self,
         gemini_api_key: str = None,
+        session_manager=None,
         **kwargs
     ):
         self.gemini_api_key = gemini_api_key
+        self.session_manager = session_manager
         # ADK WebサーバーのベースURL（Dev UIが動いているURL）
         self.adk_base_url = os.getenv("ADK_BASE_URL", "http://127.0.0.1:8000")
 
@@ -314,12 +316,8 @@ OK例: 関連する情報をまとめて聞く
                 existing_sessions = [d for d in os.listdir(sessions_dir) if os.path.isdir(os.path.join(sessions_dir, d))]
                 if existing_sessions:
                     latest_session = max(existing_sessions)
-                    session_dir = os.path.join(sessions_dir, latest_session)
-                    if not os.path.exists(session_dir):
-                        print(f"[INFO] _get_agent_toolsでセッションディレクトリ作成: {latest_session}")
-                        os.makedirs(session_dir, exist_ok=True)
-                        os.makedirs(os.path.join(session_dir, 'photos'), exist_ok=True)
-                        self.current_session = latest_session
+                    # セッションディレクトリは不要（Firestore使用）
+                    self.current_session = latest_session
         except Exception as e:
             print(f"[WARN] _get_agent_toolsでのディレクトリ作成エラー: {e}")
 
@@ -354,21 +352,8 @@ OK例: 関連する情報をまとめて聞く
         self._session_state = self.SessionState.COLLECTING
 
         # セッション用ディレクトリを事前に作成
-        session_dir = os.path.join(get_sessions_dir(), session_id)
-        photos_dir = os.path.join(session_dir, "photos")
-
-        print(f"[DEBUG] セッションディレクトリ: {session_dir}")
-        print(f"[DEBUG] 画像ディレクトリ: {photos_dir}")
-
-        # ディレクトリが存在しない場合のみ作成
-        if not os.path.exists(session_dir):
-            print(f"[DEBUG] ディレクトリ作成中...")
-            os.makedirs(session_dir)
-            os.makedirs(photos_dir)
-            print(f"[INFO] セッションディレクトリを作成しました: {session_dir}")
-            print(f"[INFO] 画像ディレクトリを作成しました: {photos_dir}")
-        else:
-            print(f"[DEBUG] ディレクトリは既に存在します")
+        # ディレクトリ作成は不要（Firestore使用）
+        print(f"[DEBUG] セッション開始: {session_id}")
 
         # 初手の通常挨拶は表示順の混乱を避けるため無効化
         return ""
@@ -1395,50 +1380,50 @@ JSONの外に余計なテキストを含めないでください。
 
 
     async def _save_session_data(self) -> None:
-        """セッションデータを保存"""
+        """セッションデータを保存（FirebaseSessionManager使用）"""
         if not self.current_session:
             print(f"[WARN] セッションIDが設定されていません: {self.current_session}")
             return
 
-        print(f"[INFO] saving session data (session_id={self.current_session})")
-
-        # セッションディレクトリを取得（事前に作成済みを想定）
-        session_dir = os.path.join(get_sessions_dir(), self.current_session)
-
-        # ディレクトリの存在確認のみ（start_sessionで作成済み）
-        if not os.path.exists(session_dir):
-            print(f"[WARN] セッションディレクトリが存在しません: {session_dir}")
+        if not self.session_manager:
+            print(f"[WARN] SessionManagerが設定されていません")
             return
 
-        # ユーザープロファイルを保存
+        print(f"[INFO] saving session data (session_id={self.current_session})")
+
+        # ユーザープロファイルを整形
         profile_data = prune_empty_fields(self.user_profile.dict())
         print(f"[DEBUG] user profile persisted: {profile_data}")
 
-        with open(os.path.join(session_dir, "user_profile.json"), "w", encoding="utf-8") as f:
-            json.dump(profile_data, f, ensure_ascii=False, indent=2)
-
-        # 会話履歴を保存
+        # 会話履歴
         print(f"[DEBUG] conversation entries: {len(self.conversation_history)}")
-        with open(os.path.join(session_dir, "conversation_history.json"), "w", encoding="utf-8") as f:
-            json.dump(self.conversation_history, f, ensure_ascii=False, indent=2)
 
-        print(f"[INFO] session data saved: {session_dir}")
+        # FirebaseSessionManagerで保存
+        try:
+            self.session_manager.save(self.current_session, {
+                'user_profile': profile_data,
+                'conversation_history': self.conversation_history
+            })
+            print(f"[INFO] session data saved to Firestore: {self.current_session}")
+        except Exception as e:
+            print(f"[ERROR] セッションデータ保存エラー: {e}")
 
 
     async def _save_conversation_history(self) -> None:
-        """会話履歴のみを保存（毎ターン呼び出し）"""
+        """会話履歴のみを保存（毎ターン呼び出し）（FirebaseSessionManager使用）"""
         if not self.current_session:
             print("[WARN] セッションID未設定のため履歴保存をスキップ")
             return
 
-        session_dir = os.path.join(get_sessions_dir(), self.current_session)
-        if not os.path.exists(session_dir):
-            print(f"[WARN] セッションディレクトリが存在しません: {session_dir}")
+        if not self.session_manager:
+            print(f"[WARN] SessionManagerが設定されていません")
             return
 
         try:
-            with open(f"{session_dir}/conversation_history.json", "w", encoding="utf-8") as f:
-                json.dump(self.conversation_history, f, ensure_ascii=False, indent=2)
+            # 会話履歴のみを保存（プロファイルは更新しない）
+            self.session_manager.save(self.current_session, {
+                'conversation_history': self.conversation_history
+            })
             print(f"[DEBUG] 会話履歴を保存しました: {len(self.conversation_history)}件")
         except Exception as e:
             print(f"[ERROR] 会話履歴保存エラー: {e}")

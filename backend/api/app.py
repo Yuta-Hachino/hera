@@ -45,10 +45,7 @@ except Exception as e:
 logger = setup_logger(__name__, log_file='logs/app.log')
 logger.info("アプリケーション起動")
 
-# Heraエージェントを直接初期化し、非同期ループを常駐させる
-hera_agent = ADKHeraAgent(
-    gemini_api_key=os.getenv("GEMINI_API_KEY")
-)
+# 非同期ループの準備
 _agent_loop = asyncio.new_event_loop()
 
 
@@ -91,6 +88,13 @@ try:
 except Exception as e:
     logger.error(f"マネージャー初期化エラー: {e}")
     raise
+
+# Heraエージェントを初期化（session_managerを渡す）
+hera_agent = ADKHeraAgent(
+    gemini_api_key=os.getenv("GEMINI_API_KEY"),
+    session_manager=session_mgr
+)
+logger.info("ADK Heraエージェント初期化完了")
 
 # Utility関数
 
