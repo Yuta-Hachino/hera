@@ -124,3 +124,4 @@ infra/terraform/**/*_override.tf.json
 
 # GCP Deploy Service Account Key
 infra/gcp-deploy-key.json
+backend/service-account-key.json
