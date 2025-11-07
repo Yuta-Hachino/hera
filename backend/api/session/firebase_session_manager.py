@@ -130,9 +130,20 @@ class FirebaseSessionManager(SessionManager):
                                 }
                                 fam_conv_ref.add(conv_data)
                     else:
-                        # その他のデータはメタデータとして保存
-                        meta_ref = session_ref.collection('metadata').document(key)
-                        meta_ref.set({'value': value})
+                        # 重要なフラグやメタデータはメインドキュメントに保存
+                        # （クエリでフィルタリングできるように）
+                        main_document_fields = [
+                            'completed', 'completed_at', 'user_id', 'created_at',
+                            'letter', 'family_image_url', 'status'
+                        ]
+
+                        if key in main_document_fields:
+                            # メインドキュメントに直接保存
+                            session_ref.update({key: value})
+                        else:
+                            # その他のデータはメタデータサブコレクションに保存
+                            meta_ref = session_ref.collection('metadata').document(key)
+                            meta_ref.set({'value': value})
 
                 # 更新日時を更新
                 session_ref.update({'updatedAt': datetime.now().isoformat()})
@@ -210,10 +221,19 @@ class FirebaseSessionManager(SessionManager):
                 if 'value' in doc_data:
                     result[doc.id] = doc_data['value']
 
-            # セッションの基本情報
+            # セッションの基本情報（メインドキュメントから読み込み）
             session_data = session_doc.to_dict()
             result['created_at'] = session_data.get('createdAt')
             result['status'] = session_data.get('status')
+
+            # メインドキュメントに保存されているフィールドを読み込み
+            main_document_fields = [
+                'completed', 'completed_at', 'user_id',
+                'letter', 'family_image_url'
+            ]
+            for field in main_document_fields:
+                if field in session_data:
+                    result[field] = session_data[field]
 
             return result
 
