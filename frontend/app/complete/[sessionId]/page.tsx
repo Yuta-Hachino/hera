@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import BackgroundLayout from '@/components/BackgroundLayout';
 import LoadingSpinner from '@/components/LoadingSpinner';
 import { useTTS } from '@/hooks/useTTS';
+import { useAuth } from '@/lib/auth-context-firebase';
 import { getSessionStatus, completeSession } from '@/lib/api';
 import { UserProfile } from '@/lib/types';
 
@@ -12,6 +13,7 @@ export default function CompletePage() {
   const params = useParams();
   const router = useRouter();
   const sessionId = params.sessionId as string;
+  const { user } = useAuth();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -50,7 +52,7 @@ export default function CompletePage() {
     setError(null);
 
     try {
-      const response = await completeSession(sessionId);
+      const response = await completeSession(sessionId, !!user);
 
       if (response.error) {
         setError(response.error);
