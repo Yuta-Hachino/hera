@@ -753,6 +753,95 @@ def generate_child_image(session_id):
         logger.error(f"子供画像生成エラー: {session_id} - {e}")
         return jsonify({'status': 'error', 'error': f'画像生成に失敗しました: {e}'}), 500
 
+
+# ============================================================
+# 🆕 Gemini Live API 統合エンドポイント（新機能）
+# ============================================================
+# Live API機能は環境変数 GEMINI_LIVE_MODE で制御
+# デフォルト: disabled（既存機能を保護）
+
+LIVE_API_ENABLED = os.getenv('GEMINI_LIVE_MODE', 'disabled').lower() == 'enabled'
+
+if LIVE_API_ENABLED:
+    try:
+        from utils.ephemeral_token_manager import get_ephemeral_token_manager
+        ephemeral_token_mgr = get_ephemeral_token_manager()
+        logger.info("✅ Gemini Live API機能: 有効")
+    except Exception as e:
+        logger.warning(f"⚠️ Live API初期化失敗: {e}")
+        LIVE_API_ENABLED = False
+else:
+    logger.info("ℹ️ Gemini Live API機能: 無効（既存機能のみ）")
+
+
+@app.route('/api/sessions/<session_id>/ephemeral-token', methods=['POST'])
+@optional_auth
+def create_ephemeral_token(session_id):
+    """
+    Gemini Live API用のEphemeralトークンを生成（新機能）
+
+    Live API機能が無効の場合は503エラーを返します。
+    セッションが存在しない場合は404エラーを返します。
+
+    Returns:
+        200: トークン生成成功
+        404: セッションが存在しない
+        500: トークン生成失敗
+        503: Live API機能が無効
+    """
+    # Live API機能チェック
+    if not LIVE_API_ENABLED:
+        logger.warning(f"Live API機能が無効です（セッション: {session_id}）")
+        return jsonify({
+            'status': 'error',
+            'error': 'Gemini Live API機能が無効です',
+            'message': 'GEMINI_LIVE_MODE=enabled を設定してください'
+        }), 503
+
+    # セッション存在確認
+    if not session_exists(session_id):
+        logger.warning(f"存在しないセッション: {session_id}")
+        return jsonify({
+            'status': 'error',
+            'error': 'セッションが存在しません'
+        }), 404
+
+    try:
+        # モデル名取得
+        model = os.getenv('GEMINI_LIVE_MODEL', 'gemini-2.0-flash-live-preview-04-09')
+
+        # Ephemeralトークン生成
+        logger.info(f"🔑 Ephemeralトークン生成開始: session={session_id}, model={model}")
+        token_data = ephemeral_token_mgr.create_token(model=model)
+
+        # WebSocket URL生成
+        ws_endpoint = ephemeral_token_mgr.get_websocket_url(token_data['token'])
+
+        logger.info(f"✅ Ephemeralトークン生成成功: session={session_id}")
+
+        return jsonify({
+            'status': 'success',
+            'token': token_data['token'],
+            'expire_time': token_data['expire_time'].isoformat(),
+            'model': model,
+            'ws_endpoint': ws_endpoint,
+            'audio_config': {
+                'input_enabled': os.getenv('AUDIO_INPUT_ENABLED', 'false').lower() == 'true',
+                'input_sample_rate': int(os.getenv('AUDIO_INPUT_SAMPLE_RATE', '16000')),
+                'output_sample_rate': int(os.getenv('AUDIO_OUTPUT_SAMPLE_RATE', '24000')),
+                'chunk_size_ms': int(os.getenv('AUDIO_CHUNK_SIZE_MS', '100'))
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Ephemeralトークン生成エラー: session={session_id} - {e}")
+        return jsonify({
+            'status': 'error',
+            'error': 'トークン生成に失敗しました',
+            'message': str(e)
+        }), 500
+
+
 if __name__ == "__main__":
     # 環境変数でデバッグモードを制御（本番環境では無効化）
     debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ('true', '1', 'yes')
