@@ -22,6 +22,7 @@ cp .env.example .env
 # .envを編集して以下を追加：
 # GEMINI_LIVE_MODE=enabled
 # GEMINI_LIVE_MODEL=gemini-2.0-flash-live-preview-04-09
+# AUDIO_INPUT_ENABLED=false  # 音声入力デフォルトOFF
 ```
 
 ### Step 2: 基本実装（1時間）

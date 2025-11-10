@@ -125,6 +125,7 @@ WS_TIMEOUT_SECONDS=300
 WS_MAX_RECONNECT_ATTEMPTS=3
 
 # 音声設定
+AUDIO_INPUT_ENABLED=false           # 音声入力デフォルトOFF（ユーザーが明示的に有効化）
 AUDIO_INPUT_SAMPLE_RATE=16000
 AUDIO_OUTPUT_SAMPLE_RATE=24000
 AUDIO_CHUNK_SIZE_MS=100
@@ -821,7 +822,7 @@ export class LiveSessionManager {
   /**
    * セッション開始
    */
-  async start(): Promise<void> {
+  async start(options: { enableAudioInput?: boolean } = {}): Promise<void> {
     try {
       this.setState(LiveSessionState.CONNECTING);
 
@@ -831,13 +832,18 @@ export class LiveSessionManager {
       // 2. WebSocket接続
       await this.connectWebSocket();
 
-      // 3. 音声プレイヤー初期化
+      // 3. 音声プレイヤー初期化（常に有効）
       await this.player.init();
 
-      // 4. 録音開始
-      await this.recorder.start((pcmData) => {
-        this.sendAudioChunk(pcmData);
-      });
+      // 4. 録音開始（オプション: デフォルトOFF）
+      if (options.enableAudioInput) {
+        await this.recorder.start((pcmData) => {
+          this.sendAudioChunk(pcmData);
+        });
+        console.log('[LiveSessionManager] 音声入力: 有効');
+      } else {
+        console.log('[LiveSessionManager] 音声入力: 無効（テキスト入力のみ）');
+      }
 
       this.setState(LiveSessionState.STREAMING);
 
@@ -1070,6 +1076,7 @@ export function LiveChatInterface({ sessionId, apiBaseUrl }: LiveChatInterfacePr
   const [state, setState] = useState<LiveSessionState>(LiveSessionState.IDLE);
   const [transcript, setTranscript] = useState<string>('');
   const [isListening, setIsListening] = useState(false);
+  const [audioInputEnabled, setAudioInputEnabled] = useState(false);  // デフォルトOFF
 
   useEffect(() => {
     // LiveSessionManager初期化
@@ -1103,7 +1110,7 @@ export function LiveChatInterface({ sessionId, apiBaseUrl }: LiveChatInterfacePr
     if (!sessionManager) return;
 
     try {
-      await sessionManager.start();
+      await sessionManager.start({ enableAudioInput: audioInputEnabled });
     } catch (error) {
       console.error('セッション開始エラー:', error);
     }
@@ -1112,6 +1119,10 @@ export function LiveChatInterface({ sessionId, apiBaseUrl }: LiveChatInterfacePr
   const handleStopSession = () => {
     if (!sessionManager) return;
     sessionManager.stop();
+  };
+
+  const handleToggleAudioInput = () => {
+    setAudioInputEnabled((prev) => !prev);
   };
 
   return (
@@ -1131,6 +1142,23 @@ export function LiveChatInterface({ sessionId, apiBaseUrl }: LiveChatInterfacePr
           <AudioVisualizer isActive={isListening} />
         </div>
 
+        {/* 設定（セッション開始前のみ） */}
+        {(state === LiveSessionState.IDLE || state === LiveSessionState.CLOSED) && (
+          <div className="mb-6 flex items-center gap-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={audioInputEnabled}
+                onChange={handleToggleAudioInput}
+                className="w-5 h-5 text-blue-600 rounded"
+              />
+              <span className="text-gray-700 font-medium">
+                音声入力を有効にする（マイク使用）
+              </span>
+            </label>
+          </div>
+        )}
+
         {/* コントロールボタン */}
         <div className="flex gap-4">
           {state === LiveSessionState.IDLE || state === LiveSessionState.CLOSED ? (
@@ -1149,6 +1177,20 @@ export function LiveChatInterface({ sessionId, apiBaseUrl }: LiveChatInterfacePr
             </button>
           )}
         </div>
+
+        {/* 音声入力/出力の状態表示 */}
+        {state === LiveSessionState.STREAMING && (
+          <div className="mt-4 flex gap-4 text-sm text-gray-600">
+            <div className="flex items-center gap-2">
+              <div className={`w-3 h-3 rounded-full ${audioInputEnabled ? 'bg-green-500' : 'bg-gray-400'}`} />
+              <span>音声入力: {audioInputEnabled ? 'ON' : 'OFF'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-green-500" />
+              <span>音声出力: ON</span>
+            </div>
+          </div>
+        )}
 
         {/* トランスクリプト表示 */}
         {transcript && (
