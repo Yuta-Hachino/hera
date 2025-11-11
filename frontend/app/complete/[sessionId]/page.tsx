@@ -29,10 +29,14 @@ export default function CompletePage() {
         const status = await getSessionStatus(sessionId);
         setProfile(status.user_profile);
 
-        // ヘーラーからの完了メッセージを音声で再生
-        const completionMessage =
-          'お疲れさまでした。あなたの情報をしっかりと受け取りました。確認ボタンを押すと、未来の家族との素敵な体験が始まります。';
-        speak(completionMessage);
+        // ヘーラーからの完了メッセージを音声で再生（エラーは無視）
+        try {
+          const completionMessage =
+            'お疲れさまでした。あなたの情報をしっかりと受け取りました。確認ボタンを押すと、未来の家族との素敵な体験が始まります。';
+          speak(completionMessage);
+        } catch (ttsErr) {
+          console.warn('TTS error (ignored):', ttsErr);
+        }
       } catch (err) {
         setError(
           err instanceof Error
@@ -62,8 +66,12 @@ export default function CompletePage() {
 
       setSuccessMessage(response.message);
 
-      // 成功メッセージを音声で再生
-      speak('ありがとうございました。それでは、未来の家族との時間をお楽しみください。');
+      // 成功メッセージを音声で再生（エラーは無視）
+      try {
+        speak('ありがとうございました。それでは、未来の家族との時間をお楽しみください。');
+      } catch (ttsErr) {
+        console.warn('TTS error (ignored):', ttsErr);
+      }
 
       // 家族との会話ページへ移動
       setTimeout(() => {

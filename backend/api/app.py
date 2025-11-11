@@ -30,6 +30,7 @@ from utils.env_validator import validate_env
 from utils.session_manager import get_session_manager, SessionManager
 from utils.storage_manager import create_storage_manager, StorageManager
 from utils.auth_middleware import require_auth, optional_auth
+from api.firebase_config import initialize_firebase
 
 # 環境変数を読み込み
 load_dotenv()
@@ -44,6 +45,11 @@ except Exception as e:
 # ロガーの設定
 logger = setup_logger(__name__, log_file='logs/app.log')
 logger.info("アプリケーション起動")
+
+# Firebase Admin SDKを初期化
+logger.info("Firebase Admin SDK初期化中...")
+initialize_firebase()
+logger.info("Firebase Admin SDK初期化完了")
 
 # 非同期ループの準備
 _agent_loop = asyncio.new_event_loop()
@@ -592,6 +598,12 @@ def _sync_user_data_from_profile(user_id: str, profile: dict):
 @app.route('/api/sessions/<session_id>/complete', methods=['POST'])
 @optional_auth
 def complete_session(session_id):
+    # === ログ追加: リクエスト情報 ===
+    auth_header = request.headers.get('Authorization')
+    logger.info(f"=== /complete エンドポイント呼び出し ===")
+    logger.info(f"  session_id: {session_id}")
+    logger.info(f"  Authorization header: {'あり' if auth_header else 'なし'}")
+
     # セッション存在確認
     if not session_exists(session_id):
         logger.warning(f"存在しないセッション: {session_id}")
@@ -617,10 +629,13 @@ def complete_session(session_id):
 
     # ユーザーデータの同期（ログインユーザーのみ）
     user_id = getattr(request, 'user_id', None)
+    logger.info(f"  request.user_id: {user_id}")
+
     if user_id:
         # セッションにuser_idを保存（クエリで検索できるように）
+        logger.info(f"  → user_idを保存します: {user_id}")
         save_session_data(session_id, 'user_id', user_id)
-        logger.info(f"セッションにuser_idを保存: {user_id}")
+        logger.info(f"  ✅ セッションにuser_idを保存完了: {user_id}")
 
         try:
             _sync_user_data_from_profile(user_id, profile_pruned)

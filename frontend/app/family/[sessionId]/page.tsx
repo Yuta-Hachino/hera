@@ -11,6 +11,7 @@ import { useTTS } from '@/hooks/useTTS';
 import {
   getFamilyStatus,
   sendFamilyMessage,
+  completeSession,
 } from '@/lib/api';
 import { ConversationMessage } from '@/lib/types';
 import { useAuth } from '@/lib/auth-context-firebase';
@@ -27,6 +28,7 @@ export default function FamilyConversationPage() {
   const [familyPlan, setFamilyPlan] = useState<Record<string, any> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [isFinishing, setIsFinishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [useNovelStyle, setUseNovelStyle] = useState(true);
   const [lastMessageIndex, setLastMessageIndex] = useState(-1);
@@ -107,8 +109,29 @@ export default function FamilyConversationPage() {
     }
   };
 
-  const handleFinish = () => {
-    router.push('/');
+  const handleFinish = async () => {
+    setIsFinishing(true);
+    setError(null);
+
+    try {
+      const response = await completeSession(sessionId, !!user);
+
+      if (response.error) {
+        setError(response.error);
+        setIsFinishing(false);
+        return;
+      }
+
+      // セッション完了成功、ホームへ遷移
+      router.push('/');
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'セッションの完了処理に失敗しました'
+      );
+      setIsFinishing(false);
+    }
   };
 
   if (isLoading) {
@@ -205,9 +228,17 @@ export default function FamilyConversationPage() {
           {isConversationComplete && (
             <button
               onClick={handleFinish}
-              className="w-full bg-gradient-to-r from-green-500 to-emerald-500 text-white font-bold py-3 px-6 rounded-lg hover:from-green-600 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300 transition-colors"
+              disabled={isFinishing}
+              className="w-full bg-gradient-to-r from-green-500 to-emerald-500 text-white font-bold py-3 px-6 rounded-lg hover:from-green-600 hover:to-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              素敵な時間をありがとう！ホームに戻る
+              {isFinishing ? (
+                <span className="flex items-center justify-center">
+                  <LoadingSpinner />
+                  <span className="ml-2">完了処理中...</span>
+                </span>
+              ) : (
+                '素敵な時間をありがとう！ホームに戻る'
+              )}
             </button>
           )}
 
