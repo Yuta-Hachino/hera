@@ -30,6 +30,7 @@ from utils.env_validator import validate_env
 from utils.session_manager import get_session_manager, SessionManager
 from utils.storage_manager import create_storage_manager, StorageManager
 from utils.auth_middleware import require_auth, optional_auth
+from api.firebase_config import initialize_firebase
 
 # 環境変数を読み込み
 load_dotenv()
@@ -45,10 +46,12 @@ except Exception as e:
 logger = setup_logger(__name__, log_file='logs/app.log')
 logger.info("アプリケーション起動")
 
-# Heraエージェントを直接初期化し、非同期ループを常駐させる
-hera_agent = ADKHeraAgent(
-    gemini_api_key=os.getenv("GEMINI_API_KEY")
-)
+# Firebase Admin SDKを初期化
+logger.info("Firebase Admin SDK初期化中...")
+initialize_firebase()
+logger.info("Firebase Admin SDK初期化完了")
+
+# 非同期ループの準備
 _agent_loop = asyncio.new_event_loop()
 
 
@@ -91,6 +94,13 @@ try:
 except Exception as e:
     logger.error(f"マネージャー初期化エラー: {e}")
     raise
+
+# Heraエージェントを初期化（session_managerを渡す）
+hera_agent = ADKHeraAgent(
+    gemini_api_key=os.getenv("GEMINI_API_KEY"),
+    session_manager=session_mgr
+)
+logger.info("ADK Heraエージェント初期化完了")
 
 # Utility関数
 
@@ -390,16 +400,10 @@ def create_session():
         save_session_data(session_id, 'conversation_history', [])
         save_session_data(session_id, 'created_at', datetime.now().isoformat())
 
-        # Supabase使用時: user_idをsessionsテーブルに設定
-        from utils.session_manager import SupabaseSessionManager
-        if isinstance(session_mgr, SupabaseSessionManager) and user_id:
-            try:
-                session_mgr.client.table('sessions').update({
-                    'user_id': user_id
-                }).eq('session_id', session_id).execute()
-                logger.info(f"セッション作成（user_id={user_id}）: {session_id}")
-            except Exception as e:
-                logger.warning(f"user_id更新失敗: {e}")
+        # Firebase使用時: user_idをセッションに設定
+        if user_id:
+            save_session_data(session_id, 'user_id', user_id)
+            logger.info(f"セッション作成（user_id={user_id}）: {session_id}")
         else:
             logger.info(f"セッション作成（ゲストモード）: {session_id}")
     except Exception as e:

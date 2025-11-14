@@ -83,6 +83,19 @@ backend/tmp/
 *.crt
 *.csr
 
+# Firebase/GCP サービスアカウントキー（機密情報）
+*service-account*.json
+firebase-service-account.json
+service-account-key.json
+gcp-deploy-key.json
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform.lock.hcl
+
 # Docker
 .dockerignore
 
@@ -95,6 +108,10 @@ htmlcov/
 *.bak
 *.backup
 *.old
+
+# ローカル開発用URL設定
+.backend_url
+.frontend_url
 
 # cursor
 .cursorrules
