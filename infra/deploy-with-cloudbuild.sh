@@ -32,9 +32,10 @@ docker run --rm -v "$BACKEND_DIR":/workspace -v "$BACKEND_DIR/firebase-service-a
       --set-env-vars='$ENV_VARS' \
       --set-secrets='GEMINI_API_KEY=gemini-api-key-prod:latest' \
       --port=8080 \
-      --cpu=1 \
-      --memory=512Mi \
-      --timeout=300 \
+      --cpu=2 \
+      --cpu-boost \
+      --memory=1Gi \
+      --timeout=600 \
       --min-instances=0 \
       --max-instances=10 \
       --allow-unauthenticated
