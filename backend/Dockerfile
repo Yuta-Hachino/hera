@@ -57,5 +57,10 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD curl -f http://localhost:8080/api/health || exit 1
 
-# アプリケーションの起動
-CMD ["python", "api/app.py"]
+# アプリケーションの起動（Gunicornを使用）
+# --bind 0.0.0.0:8080 - すべてのインターフェースでポート8080をリッスン
+# --workers 1 - ワーカープロセス1つ（Cloud Runに最適化）
+# --threads 8 - 各ワーカーで8スレッド使用（CPU 2コアを活用）
+# --timeout 300 - リクエストタイムアウト300秒
+# --access-logfile - - アクセスログを標準出力に出力
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "8", "--timeout", "300", "--access-logfile", "-", "api.app:app"]
