@@ -1,48 +1,54 @@
 """
 JWT認証ミドルウェア
-Firebase Auth JWTトークンを検証
+Supabase Auth JWTトークンを検証
 """
 import os
+import jwt
 from functools import wraps
 from flask import request, jsonify
 from typing import Callable, Any
 from utils.logger import setup_logger
-from firebase_admin import auth as firebase_auth
 
 logger = setup_logger(__name__)
 
 
 def verify_jwt_token(token: str) -> dict:
     """
-    Firebase JWTトークンを検証
+    Supabase JWTトークンを検証
 
     Args:
         token: JWTトークン（Bearer形式）
 
     Returns:
-        dict: デコードされたペイロード（uid, email等）
+        dict: デコードされたペイロード（user_id, email等）
 
     Raises:
-        Exception: トークンが無効な場合
+        jwt.InvalidTokenError: トークンが無効な場合
     """
+    supabase_jwt_secret = os.getenv('SUPABASE_JWT_SECRET')
+    if not supabase_jwt_secret:
+        raise ValueError("SUPABASE_JWT_SECRET環境変数が設定されていません")
+
     try:
         # Bearerプレフィックスを削除
         if token.startswith('Bearer '):
             token = token[7:]
 
-        # Firebase Admin SDKでトークンを検証
-        decoded_token = firebase_auth.verify_id_token(token)
+        # JWTトークンをデコード
+        payload = jwt.decode(
+            token,
+            supabase_jwt_secret,
+            algorithms=['HS256'],
+            audience='authenticated'
+        )
 
-        return decoded_token
+        return payload
 
-    except firebase_auth.ExpiredIdTokenError:
-        logger.warning("Firebase token has expired")
+    except jwt.ExpiredSignatureError:
+        logger.warning("JWT token has expired")
         raise
-    except firebase_auth.InvalidIdTokenError as e:
-        logger.warning(f"Invalid Firebase token: {e}")
-        raise
-    except Exception as e:
-        logger.warning(f"Token verification error: {e}")
+    except jwt.InvalidTokenError as e:
+        logger.warning(f"Invalid JWT token: {e}")
         raise
 
 
@@ -69,17 +75,17 @@ def require_auth(f: Callable) -> Callable:
             payload = verify_jwt_token(auth_header)
 
             # user_idをrequestオブジェクトに追加
-            request.user_id = payload.get('uid')  # Firebaseでは'uid'がuser_id
+            request.user_id = payload.get('sub')  # 'sub'がuser_id
             request.user_email = payload.get('email')
-            request.user_role = 'authenticated'
+            request.user_role = payload.get('role', 'authenticated')
 
             logger.debug(f"Authenticated user: {request.user_id}")
 
             return f(*args, **kwargs)
 
-        except firebase_auth.ExpiredIdTokenError:
+        except jwt.ExpiredSignatureError:
             return jsonify({'error': 'トークンの有効期限が切れています'}), 401
-        except firebase_auth.InvalidIdTokenError:
+        except jwt.InvalidTokenError:
             return jsonify({'error': '無効なトークンです'}), 401
         except Exception as e:
             logger.error(f"Authentication error: {e}")
@@ -108,21 +114,16 @@ def optional_auth(f: Callable) -> Callable:
     def decorated_function(*args: Any, **kwargs: Any) -> Any:
         auth_header = request.headers.get('Authorization')
 
-        logger.info(f"[optional_auth] Authorization header: {'あり (長さ: ' + str(len(auth_header)) + ')' if auth_header else 'なし'}")
-
         if auth_header:
             try:
-                logger.info(f"[optional_auth] Firebase トークン検証中...")
                 payload = verify_jwt_token(auth_header)
-                request.user_id = payload.get('uid')  # Firebaseでは'uid'がuser_id
+                request.user_id = payload.get('sub')
                 request.user_email = payload.get('email')
-                request.user_role = 'authenticated'
-                logger.info(f"[optional_auth] ✅ 認証成功: user_id={request.user_id}, email={request.user_email}")
+                request.user_role = payload.get('role', 'authenticated')
+                logger.debug(f"Authenticated user: {request.user_id}")
             except Exception as e:
-                logger.warning(f"[optional_auth] ❌ 認証失敗: {type(e).__name__}: {str(e)}")
+                logger.debug(f"Optional auth failed: {e}")
                 # 認証失敗してもエンドポイントにアクセス可能
-        else:
-            logger.info(f"[optional_auth] Authorization ヘッダーなし - ゲストモード")
 
         return f(*args, **kwargs)
 

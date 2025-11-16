@@ -30,7 +30,6 @@ from utils.env_validator import validate_env
 from utils.session_manager import get_session_manager, SessionManager
 from utils.storage_manager import create_storage_manager, StorageManager
 from utils.auth_middleware import require_auth, optional_auth
-from api.firebase_config import initialize_firebase
 
 # 環境変数を読み込み
 load_dotenv()
@@ -46,12 +45,10 @@ except Exception as e:
 logger = setup_logger(__name__, log_file='logs/app.log')
 logger.info("アプリケーション起動")
 
-# Firebase Admin SDKを初期化
-logger.info("Firebase Admin SDK初期化中...")
-initialize_firebase()
-logger.info("Firebase Admin SDK初期化完了")
-
-# 非同期ループの準備
+# Heraエージェントを直接初期化し、非同期ループを常駐させる
+hera_agent = ADKHeraAgent(
+    gemini_api_key=os.getenv("GEMINI_API_KEY")
+)
 _agent_loop = asyncio.new_event_loop()
 
 
@@ -94,13 +91,6 @@ try:
 except Exception as e:
     logger.error(f"マネージャー初期化エラー: {e}")
     raise
-
-# Heraエージェントを初期化（session_managerを渡す）
-hera_agent = ADKHeraAgent(
-    gemini_api_key=os.getenv("GEMINI_API_KEY"),
-    session_manager=session_mgr
-)
-logger.info("ADK Heraエージェント初期化完了")
 
 # Utility関数
 
@@ -400,10 +390,16 @@ def create_session():
         save_session_data(session_id, 'conversation_history', [])
         save_session_data(session_id, 'created_at', datetime.now().isoformat())
 
-        # Firebase使用時: user_idをセッションに設定
-        if user_id:
-            save_session_data(session_id, 'user_id', user_id)
-            logger.info(f"セッション作成（user_id={user_id}）: {session_id}")
+        # Supabase使用時: user_idをsessionsテーブルに設定
+        from utils.session_manager import SupabaseSessionManager
+        if isinstance(session_mgr, SupabaseSessionManager) and user_id:
+            try:
+                session_mgr.client.table('sessions').update({
+                    'user_id': user_id
+                }).eq('session_id', session_id).execute()
+                logger.info(f"セッション作成（user_id={user_id}）: {session_id}")
+            except Exception as e:
+                logger.warning(f"user_id更新失敗: {e}")
         else:
             logger.info(f"セッション作成（ゲストモード）: {session_id}")
     except Exception as e:
@@ -766,10 +762,14 @@ def generate_child_image(session_id):
 
 LIVE_API_ENABLED = os.getenv('GEMINI_LIVE_MODE', 'disabled').lower() == 'enabled'
 
-# Lazy initialization: インポートのみ行い、実際の初期化は使用時に行う
 if LIVE_API_ENABLED:
-    from utils.ephemeral_token_manager import get_ephemeral_token_manager
-    logger.info("✅ Gemini Live API機能: 有効（Lazy initialization）")
+    try:
+        from utils.ephemeral_token_manager import get_ephemeral_token_manager
+        ephemeral_token_mgr = get_ephemeral_token_manager()
+        logger.info("✅ Gemini Live API機能: 有効")
+    except Exception as e:
+        logger.warning(f"⚠️ Live API初期化失敗: {e}")
+        LIVE_API_ENABLED = False
 else:
     logger.info("ℹ️ Gemini Live API機能: 無効（既存機能のみ）")
 
@@ -809,9 +809,6 @@ def create_ephemeral_token(session_id):
     try:
         # モデル名取得
         model = os.getenv('GEMINI_LIVE_MODEL', 'gemini-2.0-flash-live-preview-04-09')
-
-        # Ephemeralトークンマネージャー取得（Lazy initialization）
-        ephemeral_token_mgr = get_ephemeral_token_manager()
 
         # Ephemeralトークン生成
         logger.info(f"🔑 Ephemeralトークン生成開始: session={session_id}, model={model}")
