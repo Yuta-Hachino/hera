@@ -766,14 +766,10 @@ def generate_child_image(session_id):
 
 LIVE_API_ENABLED = os.getenv('GEMINI_LIVE_MODE', 'disabled').lower() == 'enabled'
 
+# Lazy initialization: インポートのみ行い、実際の初期化は使用時に行う
 if LIVE_API_ENABLED:
-    try:
-        from utils.ephemeral_token_manager import get_ephemeral_token_manager
-        ephemeral_token_mgr = get_ephemeral_token_manager()
-        logger.info("✅ Gemini Live API機能: 有効")
-    except Exception as e:
-        logger.warning(f"⚠️ Live API初期化失敗: {e}")
-        LIVE_API_ENABLED = False
+    from utils.ephemeral_token_manager import get_ephemeral_token_manager
+    logger.info("✅ Gemini Live API機能: 有効（Lazy initialization）")
 else:
     logger.info("ℹ️ Gemini Live API機能: 無効（既存機能のみ）")
 
@@ -813,6 +809,9 @@ def create_ephemeral_token(session_id):
     try:
         # モデル名取得
         model = os.getenv('GEMINI_LIVE_MODEL', 'gemini-2.0-flash-live-preview-04-09')
+
+        # Ephemeralトークンマネージャー取得（Lazy initialization）
+        ephemeral_token_mgr = get_ephemeral_token_manager()
 
         # Ephemeralトークン生成
         logger.info(f"🔑 Ephemeralトークン生成開始: session={session_id}, model={model}")
