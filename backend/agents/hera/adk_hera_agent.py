@@ -107,9 +107,11 @@ class ADKHeraAgent:
     def __init__(
         self,
         gemini_api_key: str = None,
+        session_manager=None,
         **kwargs
     ):
         self.gemini_api_key = gemini_api_key
+        self.session_manager = session_manager  # セッションマネージャーを保存
         # ADK WebサーバーのベースURL（Dev UIが動いているURL）
         self.adk_base_url = os.getenv("ADK_BASE_URL", "http://127.0.0.1:8000")
 
