@@ -28,9 +28,9 @@ async function fetchApi<T>(
   const { requireAuth = false, ...fetchOptions } = options || {};
   const url = `${API_URL}${endpoint}`;
 
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...fetchOptions?.headers,
+    ...(fetchOptions?.headers as Record<string, string>),
   };
 
   // 認証が必要な場合はJWTトークンを付与
