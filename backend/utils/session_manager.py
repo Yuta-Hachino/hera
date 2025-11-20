@@ -163,6 +163,67 @@ class RedisSessionManager(SessionManager):
         return self.redis.exists(meta_key) > 0
 
 
+class FirebaseSessionManager(SessionManager):
+    """Firebaseベースのセッション管理（本番環境用）"""
+
+    def __init__(self):
+        """Firebase Admin SDKを使用してFirestoreクライアントを初期化"""
+        try:
+            import firebase_admin
+            from firebase_admin import firestore
+        except ImportError:
+            raise ImportError(
+                "Firebaseセッション管理を使用するには、firebase-adminパッケージが必要です。\n"
+                "pip install firebase-admin をして実行してください。"
+            )
+
+        # Firestoreクライアント
+        self.db = firestore.client()
+
+    def _get_session_ref(self, session_id: str):
+        """セッションのFirestoreリファレンスを取得"""
+        return self.db.collection('sessions').document(session_id)
+
+    def save(self, session_id: str, data: Dict[str, Any]) -> None:
+        """セッションデータをFirestoreに保存"""
+        ref = self._get_session_ref(session_id)
+
+        # 既存のデータを読み込み
+        doc = ref.get()
+        if doc.exists:
+            # 既存データとマージ
+            existing_data = doc.to_dict()
+            existing_data.update(data)
+            existing_data['updated_at'] = datetime.utcnow().isoformat()
+            ref.set(existing_data)
+        else:
+            # 新規作成
+            data['created_at'] = datetime.utcnow().isoformat()
+            data['updated_at'] = datetime.utcnow().isoformat()
+            ref.set(data)
+
+    def load(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """セッションデータをFirestoreから読み込み"""
+        ref = self._get_session_ref(session_id)
+        doc = ref.get()
+
+        if not doc.exists:
+            return None
+
+        return doc.to_dict()
+
+    def delete(self, session_id: str) -> None:
+        """セッションデータを削除"""
+        ref = self._get_session_ref(session_id)
+        ref.delete()
+
+    def exists(self, session_id: str) -> bool:
+        """セッションが存在するか確認"""
+        ref = self._get_session_ref(session_id)
+        doc = ref.get()
+        return doc.exists
+
+
 class SupabaseSessionManager(SessionManager):
     """Supabaseベースのセッション管理（本番環境用）"""
 
@@ -344,10 +405,11 @@ def create_session_manager() -> SessionManager:
     環境変数に基づいてセッションマネージャーを作成
 
     環境変数:
-        SESSION_TYPE: 'file', 'redis', 'supabase' (デフォルト: 'file')
+        SESSION_TYPE: 'file', 'redis', 'supabase', 'firebase' (デフォルト: 'file')
         REDIS_URL: RedisのURL（SESSION_TYPE='redis'の場合に必須）
         SUPABASE_URL: SupabaseプロジェクトのURL（SESSION_TYPE='supabase'の場合に必須）
         SUPABASE_SERVICE_ROLE_KEY: Supabaseサービスロールキー（SESSION_TYPE='supabase'の場合に必須）
+        FIREBASE_PROJECT_ID: FirebaseプロジェクトID（SESSION_TYPE='firebase'の場合に必須）
         SESSIONS_DIR: ファイルベースの場合のセッションディレクトリ
 
     Returns:
@@ -372,6 +434,9 @@ def create_session_manager() -> SessionManager:
             )
         ttl = int(os.getenv('SESSION_TTL', '86400'))  # デフォルト24時間
         return RedisSessionManager(redis_url, ttl=ttl)
+
+    elif session_type == 'firebase':
+        return FirebaseSessionManager()
 
     else:  # file
         from config import get_sessions_dir
