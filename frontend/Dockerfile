@@ -9,7 +9,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # 依存関係のインストール
-RUN npm ci
+RUN npm install
 
 # ============================================
 # ステージ2: ビルド
