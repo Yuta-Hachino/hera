@@ -1,26 +1,29 @@
 /**
  * Supabaseクライアント設定
  * ブラウザとサーバーサイドの両方で使用可能
+ * 注: 現在はFirebase認証を使用しているため、Supabaseは非推奨
  */
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
+// Supabaseが設定されていない場合は警告のみ（ビルド時のエラーを回避）
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables')
+  console.warn('Supabase environment variables not configured. Using Firebase authentication instead.')
 }
 
 /**
  * Supabaseクライアント（ブラウザ用）
  * 認証情報はlocalStorageに自動保存
+ * 注: 空の値でもクライアントを作成（実際には使用されない）
  */
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
   }
-})
+}) : null as any
 
 /**
  * 現在のユーザー情報を取得

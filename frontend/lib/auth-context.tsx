@@ -33,7 +33,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // 認証状態の変化を監視
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      (_event: string, session: any) => {
         setUser(session?.user ?? null)
         setLoading(false)
       }
