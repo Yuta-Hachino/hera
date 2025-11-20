@@ -184,19 +184,19 @@ export class LiveSessionManager {
     const setupMessage: SetupMessage = {
       type: 'setup',
       setup: {
-        model: this.config.model || 'gemini-2.0-flash-live-preview-04-09',
+        model: this.config?.model || 'gemini-2.0-flash-live-preview-04-09',
       },
     };
 
     // レスポンスモダリティ設定
-    if (this.config.enableAudioOutput) {
+    if (this.config?.enableAudioOutput) {
       setupMessage.setup.generation_config = {
         response_modalities: ['TEXT', 'AUDIO'],
       };
     }
 
     // システムインストラクション設定
-    if (this.config.systemInstruction) {
+    if (this.config?.systemInstruction) {
       setupMessage.setup.system_instruction = {
         parts: [{ text: this.config.systemInstruction }],
       };
