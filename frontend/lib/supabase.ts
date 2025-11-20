@@ -13,17 +13,30 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.warn('Supabase environment variables not configured. Using Firebase authentication instead.')
 }
 
+// ダミークライアントを作成（Supabase未設定時のエラー回避）
+const createDummyClient = () => ({
+  auth: {
+    getUser: async () => ({ data: { user: null }, error: null }),
+    signInWithOAuth: async () => ({ error: null }),
+    signOut: async () => ({ error: null }),
+    onAuthStateChange: (callback: any) => ({
+      data: { subscription: { unsubscribe: () => {} } }
+    }),
+    getSession: async () => ({ data: { session: null }, error: null })
+  }
+} as any)
+
 /**
  * Supabaseクライアント（ブラウザ用）
  * 認証情報はlocalStorageに自動保存
- * 注: 空の値でもクライアントを作成（実際には使用されない）
+ * 注: Supabase未設定時はダミークライアントを使用
  */
 export const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
   }
-}) : null as any
+}) : createDummyClient()
 
 /**
  * 現在のユーザー情報を取得
