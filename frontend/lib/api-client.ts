@@ -22,9 +22,9 @@ export async function apiRequest<T = any>(
 ): Promise<T> {
   const { requireAuth = false, ...fetchOptions } = options
 
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...fetchOptions.headers,
+    ...(fetchOptions.headers as Record<string, string>),
   }
 
   // 認証が必要な場合はJWTトークンを付与
