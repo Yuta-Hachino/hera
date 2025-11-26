@@ -107,51 +107,37 @@ class EphemeralTokenManager:
             if hasattr(token_response, '__dict__'):
                 logger.debug(f"Token response __dict__: {token_response.__dict__}")
 
-            # レスポンスデータ
-            # AuthTokenオブジェクトの属性を正しくアクセス
-            # token_responseが辞書形式の場合とオブジェクト形式の場合の両方に対応
-            if hasattr(token_response, '__dict__'):
-                # オブジェクトの場合
-                token_data = token_response.__dict__
-            else:
-                # 辞書またはオブジェクトの場合
-                token_data = token_response
+            # AuthToken(Pydanticモデル)では name に Ephemeral Token が格納される
+            token_value = getattr(token_response, 'name', None)
+            expire_time = getattr(token_response, 'expire_time', None)
+            new_session_expire_time = getattr(token_response, 'new_session_expire_time', None)
 
-            # トークン値を取得（複数の可能性に対応）
-            token_value = None
-            expire_time = None
-            new_session_expire_time = None
-
-            # トークン値の取得を試みる
-            if hasattr(token_data, 'access_token'):
-                token_value = token_data.access_token
-            elif hasattr(token_data, 'auth_token'):
-                token_value = token_data.auth_token
-            elif hasattr(token_data, 'value'):
-                token_value = token_data.value
-            elif isinstance(token_data, str):
-                token_value = token_data
-            else:
-                # オブジェクトを文字列に変換して確認
-                token_str = str(token_data)
+            # SDK側仕様変更時のフォールバック
+            if token_value is None:
+                token_value = getattr(token_response, 'access_token', None)
+            if token_value is None:
+                token_value = getattr(token_response, 'auth_token', None)
+            if token_value is None:
+                token_value = getattr(token_response, 'value', None)
+            if token_value is None and isinstance(token_response, str):
+                token_value = token_response
+            if token_value is None:
+                token_str = str(token_response)
                 if token_str and not token_str.startswith('<'):
                     token_value = token_str
 
-            # 有効期限の取得
-            if hasattr(token_data, 'expire_time'):
-                expire_time = token_data.expire_time
-            elif hasattr(token_data, 'expires_at'):
-                expire_time = token_data.expires_at
-            else:
+            if expire_time is None:
+                expire_time = getattr(token_response, 'expires_at', None)
+            if expire_time is None:
                 expire_time = token_config['expire_time']
 
-            # 新規セッション開始期限の取得
-            if hasattr(token_data, 'new_session_expire_time'):
-                new_session_expire_time = token_data.new_session_expire_time
-            elif hasattr(token_data, 'new_session_expires_at'):
-                new_session_expire_time = token_data.new_session_expires_at
-            else:
+            if new_session_expire_time is None:
+                new_session_expire_time = getattr(token_response, 'new_session_expires_at', None)
+            if new_session_expire_time is None:
                 new_session_expire_time = token_config['new_session_expire_time']
+
+            if token_value is None:
+                raise ValueError('Ephemeral token value is missing in response')
 
             result = {
                 'token': token_value,
@@ -181,7 +167,13 @@ class EphemeralTokenManager:
             WebSocket URL
         """
         base_url = "wss://generativelanguage.googleapis.com/ws"
-        service = f"google.ai.generativelanguage.{self.api_version}.GenerativeService.BidiGenerateContent"
+        constrained = token.startswith('auth_tokens/')
+        method = (
+            "GenerativeService.BidiGenerateContentConstrained"
+            if constrained
+            else "GenerativeService.BidiGenerateContent"
+        )
+        service = f"google.ai.generativelanguage.{self.api_version}.{method}"
 
         ws_url = f"{base_url}/{service}?key={token}"
 

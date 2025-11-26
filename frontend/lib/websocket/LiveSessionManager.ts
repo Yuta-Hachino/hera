@@ -50,6 +50,7 @@ export class LiveSessionManager {
     reconnectAttempts: 0,
     errorCount: 0,
   };
+  private manualStopRequested = false;
 
   constructor(options: LiveSessionOptions) {
     this.sessionId = options.sessionId;
@@ -350,6 +351,12 @@ export class LiveSessionManager {
     this.setState('disconnected');
     this.handlers.onDisconnect?.();
 
+    if (this.manualStopRequested) {
+      // 手動停止時は再接続を行わず、フラグのみリセット
+      this.manualStopRequested = false;
+      return;
+    }
+
     // 自動再接続
     if (wasConnected && this.autoReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
       console.log(
@@ -390,6 +397,7 @@ export class LiveSessionManager {
    */
   async stop(): Promise<void> {
     this.setState('disconnecting');
+    this.manualStopRequested = true;
 
     // 再接続タイマークリア
     if (this.reconnectTimer) {
@@ -403,6 +411,9 @@ export class LiveSessionManager {
         this.ws.close(1000, 'Normal closure');
       }
       this.ws = null;
+    } else {
+      // 接続が存在しない場合は手動停止フラグのみリセット
+      this.manualStopRequested = false;
     }
 
     this.setState('disconnected');
