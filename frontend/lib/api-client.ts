@@ -3,8 +3,9 @@
  * Firebase JWTトークンを自動的に付与してバックエンドAPIを呼び出す
  */
 import { getAccessToken } from './firebase'
+import { API_URL } from './config'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+const API_BASE_URL = API_URL
 
 interface RequestOptions extends RequestInit {
   requireAuth?: boolean

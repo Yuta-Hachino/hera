@@ -22,6 +22,7 @@ import {
   WebSocketErrorCode,
   WebSocketEventHandlers,
 } from './types';
+import { API_URL } from '@/lib/config';
 
 export class LiveSessionManager {
   private sessionId: string;
@@ -94,8 +95,7 @@ export class LiveSessionManager {
    */
   private async fetchEphemeralToken(): Promise<void> {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
-      const response = await fetch(`${apiUrl}/api/sessions/${this.sessionId}/ephemeral-token`, {
+      const response = await fetch(`${API_URL}/api/sessions/${this.sessionId}/ephemeral-token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
