@@ -101,18 +101,69 @@ class EphemeralTokenManager:
             logger.info(f"🔑 Ephemeralトークン生成開始（uses={uses}, expire={self.expire_minutes}分）")
             token_response = self.client.auth_tokens.create(config=token_config)
 
+            # デバッグ: レスポンスの型と内容を確認
+            logger.debug(f"Token response type: {type(token_response)}")
+            logger.debug(f"Token response dir: {dir(token_response)}")
+            if hasattr(token_response, '__dict__'):
+                logger.debug(f"Token response __dict__: {token_response.__dict__}")
+
             # レスポンスデータ
+            # AuthTokenオブジェクトの属性を正しくアクセス
+            # token_responseが辞書形式の場合とオブジェクト形式の場合の両方に対応
+            if hasattr(token_response, '__dict__'):
+                # オブジェクトの場合
+                token_data = token_response.__dict__
+            else:
+                # 辞書またはオブジェクトの場合
+                token_data = token_response
+
+            # トークン値を取得（複数の可能性に対応）
+            token_value = None
+            expire_time = None
+            new_session_expire_time = None
+
+            # トークン値の取得を試みる
+            if hasattr(token_data, 'access_token'):
+                token_value = token_data.access_token
+            elif hasattr(token_data, 'auth_token'):
+                token_value = token_data.auth_token
+            elif hasattr(token_data, 'value'):
+                token_value = token_data.value
+            elif isinstance(token_data, str):
+                token_value = token_data
+            else:
+                # オブジェクトを文字列に変換して確認
+                token_str = str(token_data)
+                if token_str and not token_str.startswith('<'):
+                    token_value = token_str
+
+            # 有効期限の取得
+            if hasattr(token_data, 'expire_time'):
+                expire_time = token_data.expire_time
+            elif hasattr(token_data, 'expires_at'):
+                expire_time = token_data.expires_at
+            else:
+                expire_time = token_config['expire_time']
+
+            # 新規セッション開始期限の取得
+            if hasattr(token_data, 'new_session_expire_time'):
+                new_session_expire_time = token_data.new_session_expire_time
+            elif hasattr(token_data, 'new_session_expires_at'):
+                new_session_expire_time = token_data.new_session_expires_at
+            else:
+                new_session_expire_time = token_config['new_session_expire_time']
+
             result = {
-                'token': token_response.token,
-                'expire_time': token_response.expire_time,
-                'new_session_expire_time': token_response.new_session_expire_time,
+                'token': token_value,
+                'expire_time': expire_time,
+                'new_session_expire_time': new_session_expire_time,
                 'api_version': self.api_version,
             }
 
             if model:
                 result['model'] = model
 
-            logger.info(f"✅ Ephemeralトークン生成成功（有効期限: {token_response.expire_time}）")
+            logger.info(f"✅ Ephemeralトークン生成成功（有効期限: {expire_time}）")
             return result
 
         except Exception as e:
