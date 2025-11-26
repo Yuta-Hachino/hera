@@ -94,7 +94,8 @@ export class LiveSessionManager {
    */
   private async fetchEphemeralToken(): Promise<void> {
     try {
-      const response = await fetch(`/api/sessions/${this.sessionId}/ephemeral-token`, {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+      const response = await fetch(`${apiUrl}/api/sessions/${this.sessionId}/ephemeral-token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
