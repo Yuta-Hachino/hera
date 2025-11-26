@@ -4,15 +4,16 @@
  * ダッシュボードページ
  * ユーザーのセッション一覧と新規セッション作成
  */
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { withAuth } from '@/lib/with-auth'
 import { useAuth } from '@/lib/auth-context'
 import { createSession } from '@/lib/api-client'
+import DashboardLayout from '@/components/DashboardLayout'
 
 function DashboardPage() {
   const router = useRouter()
-  const { user, signOut } = useAuth()
+  const { user } = useAuth()
   const [isCreatingSession, setIsCreatingSession] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -34,39 +35,10 @@ function DashboardPage() {
     }
   }
 
-  const handleSignOut = async () => {
-    try {
-      await signOut()
-      router.push('/login')
-    } catch (err) {
-      console.error('Sign out error:', err)
-    }
-  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      {/* ヘッダー */}
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-gray-900">
-            AIファミリー・シミュレーター
-          </h1>
-          <div className="flex items-center gap-4">
-            <div className="text-sm text-gray-600">
-              {user?.email}
-            </div>
-            <button
-              onClick={handleSignOut}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            >
-              ログアウト
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* メインコンテンツ */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <DashboardLayout>
+      <div>
         <div className="text-center mb-12">
           <h2 className="text-3xl font-bold text-gray-900 mb-4">
             未来の家族を体験しましょう
@@ -188,8 +160,8 @@ function DashboardPage() {
             </p>
           </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </DashboardLayout>
   )
 }
 

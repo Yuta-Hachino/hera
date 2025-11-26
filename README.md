@@ -2,25 +2,15 @@
 
 ## 📋 プロダクト概要
 
-AIファミリー・シミュレーターは、Google ADKベースのHeraエージェントが自然な対話を通じてユーザー情報を収集し、生成AIが「未来の家族の日常ストーリー」「家族旅行のイラスト」「子どもからの未来の手紙」を生成するアプリケーションです。
+AIファミリー・シミュレーターは、Gemini 2.5 Flash Live APIを活用した自然な対話システムを通じて、ユーザーの理想の家族像を生成し、リアルタイムで音声・テキスト対話ができるWebアプリケーションです。
 
 **目的**: 結婚や出産に対する心理的な不安を軽減し、「子どもを持つ未来」をポジティブに体験してもらうこと
 
 ### 🔧 技術的特徴
-- **Google ADK統合**: 高度なエージェント対話システム
-- **REST API**: Flask ベースのWeb API（ポート8080）
-- **セッション管理**: ファイルベースの永続化
-- **Unicode対応**: Windows環境での文字エンコーディング問題を解決
-
-### 🎯 プロダクト評価
-
-| 項目 | 評価 | 詳細 |
-|------|------|------|
-| **技術力** | 中〜高 | フォーム入力→テキスト生成→画像生成を組み合わせ |
-| **生成AI活用度** | 高 | 文章＋画像＋感情的な手紙などマルチ活用 |
-| **創造性** | 高 | 「子どもを持つ未来」を疑似体験させるのは新しい |
-| **社会的影響度** | 高 | 結婚・出産に対する心理的ポジティブ変化を促す |
-| **1週間MVP** | 実現可能 | 入力→短い未来シナリオ＋家族画像生成 |
+- **Gemini Live API**: リアルタイム音声・テキスト対話
+- **Firebase統合**: 認証・ストレージ・セッション管理
+- **WebSocket通信**: 低遅延のリアルタイム通信
+- **Cloud Run**: サーバーレスでスケーラブルなデプロイ
 
 ---
 
@@ -44,44 +34,20 @@ AIファミリー・シミュレーターは、Google ADKベースのHeraエー�
 
 ## 🚀 機能要件
 
-### 1. Google ADKベース ヘーラーエージェント対話システム
+### 主要機能
 
-#### 高度な対話機能
-Google ADKを活用したヘーラーエージェントが自然な対話を通じて以下の情報を収集：
+#### 1. AIファミリー生成
+- ユーザーの希望や理想に基づいてAIが家族を生成
+- パーソナライズされた家族メンバーの性格・特徴設定
 
-- **基本情報**
-  - 年齢
-  - 収入（ざっくりレンジでOK）
-  - ライフスタイル（都会／地方、趣味、仕事のスタイルなど）
-  - 家族構成
+#### 2. リアルタイム対話
+- **音声対話**: WebSocketによるリアルタイム音声通信
+- **テキスト対話**: チャット形式でのメッセージ交換
+- **マルチモーダル**: 音声とテキストの自由な切り替え
 
-- **音声・画像情報**
-  - 音声入力による自然な対話
-  - 顔写真（自分・パートナー）※特徴を伝えて生成も可能
-
-#### AIエージェント「ヘーラー（Hera）」
-- **役割**: Google ADKベースの家族愛の神として、高度な対話でユーザー情報を収集
-- **技術**: Google Cloud AI Platform、Dialogflow、Speech-to-Text、Text-to-Speech
-- **領域**: 結婚、家庭、貞節、妻の守護
-- **象徴**: 孔雀、王冠、ザクロ
-- **概要**: ゼウスの妻であり、正妻や結婚制度の守護神。愛情深い一方で嫉妬深い面もあり、「夫婦愛と嫉妬」という人間的な愛の形を象徴
-- **機能**: 音声対応、リアルタイム対話、AI駆動の情報抽出
-
-### 2. Google ADKエージェントシステム
-
-#### ADKベースのエージェント
-Google ADKの正式なフレームワークを使用した高度なエージェントシステム：
-
-- **ADKHeraAgent**: 家族愛の神としてのヘーラーエージェント
-- **LLM統合**: Gemini Proとの完全統合
-- **メモリ管理**: ADKのメモリシステムを活用
-- **ツール統合**: ADKのツールシステムを活用
-
-#### 高度な対話機能
-- **音声対応**: Speech-to-Text & Text-to-Speech
-- **リアルタイム対話**: WebSocket対応
-- **文脈理解**: 会話の流れを理解した応答
-- **感情認識**: ユーザーの感情を考慮した対話
+#### 3. セッション管理
+- Firebaseによる永続的なセッション保存
+- 過去の会話履歴の参照機能
 
 ### 3. コンテンツ生成システム
 
@@ -137,21 +103,24 @@ Google ADKの正式なフレームワークを使用した高度なエージェ�
 ## 🏗️ 技術要件
 
 ### フロントエンド
-- **音声入力**: Web Speech API + Google Cloud Speech-to-Text
-- **リアルタイム表示**: FastAPI stream表示
-- **動画再生**: TBD
-- **音声出力**: Google Cloud Text-to-Speech
+- **Framework**: Next.js 14 (App Router)
+- **言語**: TypeScript
+- **スタイリング**: Tailwind CSS
+- **認証**: Firebase Authentication
+- **リアルタイム通信**: WebSocket
 
 ### バックエンド
 - **API サーバー**: Flask + CORS対応
-- **AI生成**: Google Gemini API + Google ADK
-- **エージェント**: ADKHeraAgent（Google ADK統合）
-- **画像生成**: Gemini API
-- **音声処理**: Google Cloud Speech-to-Text & Text-to-Speech
-- **セッション管理**: ファイルベース（JSON）
+- **AI**: Gemini 2.5 Flash Live API
+- **音声処理**: Gemini Live APIの内蔵音声機能
+- **セッション管理**: Firebase Storage
+- **認証**: Firebase Admin SDK
 
 ### インフラ
-- **ホスティング**: ローカルホスト
+- **ホスティング**: Google Cloud Run (サーバーレス)
+- **CI/CD**: Cloud Build
+- **ストレージ**: Firebase Storage
+- **認証**: Firebase Authentication
 
 ---
 
@@ -171,46 +140,54 @@ Google ADKの正式なフレームワークを使用した高度なエージェ�
 
 ## 🚀 セットアップと実行
 
-### 🐳 Docker を使う場合（推奨）
+### 必要要件
+- Node.js 18+
+- Python 3.11+
+- Firebase プロジェクト
+- Google Cloud プロジェクト
+- Gemini API キー
 
+### ⚙️ ローカル開発環境
+
+#### Backend
 ```bash
-# 1. 環境変数を設定
-cp backend/.env.example .env
-# .envファイルを編集してGEMINI_API_KEYを設定
+cd backend
+python3 -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
 
-# 2. Dockerコンテナを起動
-docker-compose up --build
+# 環境変数設定
+cp .env.example .env
+# .envファイルを編集
 
-# アクセス:
-# フロントエンド: http://localhost:3000
-# バックエンドAPI: http://localhost:8080
-# Google ADK開発UI: http://localhost:8000
+# サーバー起動
+python app.py
+# http://localhost:8080
 ```
 
-詳細は [DOCKER.md](DOCKER.md) を参照してください。
+#### Frontend
+```bash
+cd frontend
+npm install
 
-### ⚙️ ローカル環境で実行する場合
+# 環境変数設定
+cp .env.example .env.local
+# .env.localファイルを編集
 
-詳細な実行手順は [backend/README.md](backend/README.md) を参照してください。
+# 開発サーバー起動
+npm run dev
+# http://localhost:3000
+```
+
+### 🚀 デプロイ (Cloud Run)
 
 ```bash
-# 1. 仮想環境を作成・有効化
-python3 -m venv venv
-source venv/bin/activate  # macOS/Linux
-# .venv\Scripts\activate   # Windows
+# Backend デプロイ
+cd infra
+./deploy-with-cloudbuild.sh
 
-# 2. 依存関係をインストール
-pip install -r backend/requirements.txt
-
-# 3. 環境変数を設定（backend/.envファイルを作成）
-cd backend
-cp .env.example .env
-# .envファイルを編集してAPIキーを設定
-
-# 4. APIサーバーを起動
-cd backend
-python api/app.py
-# http://localhost:8080 にアクセス
+# Frontend デプロイ
+./deploy-frontend-with-version.sh
 ```
 
 ### 利用可能なAPI
@@ -220,18 +197,16 @@ python api/app.py
 1. **セッション管理**
    - `POST /api/sessions` - セッション作成
    - `GET /api/sessions/{id}/status` - セッション状態取得
+   - `POST /api/sessions/{id}/ephemeral-token` - Ephemeral Token取得
    - `POST /api/sessions/{id}/complete` - セッション完了
 
 2. **対話機能**
-   - `POST /api/sessions/{id}/messages` - メッセージ送信・ヒアリング
+   - `POST /api/sessions/{id}/messages` - メッセージ送信
+   - WebSocket接続 - リアルタイム音声・テキスト対話
 
 3. **システム**
    - `GET /api/health` - ヘルスチェック
-
-#### 利用可能なエージェント
-
-1. **ADKHeraAgent** - プロファイル収集エージェント（Google ADK統合）
-2. **Family Agent** - 家族会話エージェント（ストーリー・手紙生成）
+   - `GET /api/version` - バージョン情報
 
 ### API使用例
 
