@@ -1,0 +1,57 @@
+steps:
+  # ビルド: Dockerイメージをビルド（ビルド引数を指定）
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_API_URL=https://hera-backend-prod-716580137550.asia-northeast1.run.app'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSyDP2oDcOunRfIYfh3GPvyQGw8LFQW7qp3E'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=test-6554c.firebaseapp.com'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_FIREBASE_PROJECT_ID=test-6554c'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=test-6554c.firebasestorage.app'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=716580137550'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_FIREBASE_APP_ID=1:716580137550:web:754d37c7f4f51b3363b11f'
+      - '-t'
+      - 'asia-northeast1-docker.pkg.dev/test-6554c/hera/hera-frontend:latest'
+      - '-t'
+      - 'asia-northeast1-docker.pkg.dev/test-6554c/hera/hera-frontend:$BUILD_ID'
+      - '.'
+
+  # プッシュ: Dockerイメージをプッシュ
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'asia-northeast1-docker.pkg.dev/test-6554c/hera/hera-frontend:latest'
+
+  # デプロイ: Cloud Runにデプロイ
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'hera-frontend-prod'
+      - '--image'
+      - 'asia-northeast1-docker.pkg.dev/test-6554c/hera/hera-frontend:latest'
+      - '--platform=managed'
+      - '--region=asia-northeast1'
+      - '--port=3000'
+      - '--cpu=1'
+      - '--memory=512Mi'
+      - '--timeout=60'
+      - '--min-instances=0'
+      - '--max-instances=5'
+      - '--allow-unauthenticated'
+
+images:
+  - 'asia-northeast1-docker.pkg.dev/test-6554c/hera/hera-frontend:latest'
+  - 'asia-northeast1-docker.pkg.dev/test-6554c/hera/hera-frontend:$BUILD_ID'
+
+options:
+  machineType: 'E2_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY

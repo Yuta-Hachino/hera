@@ -10,6 +10,7 @@ google-genai>=0.8.0
 # Web application / environment loading
 Flask==3.1.2
 python-dotenv==1.1.1
+gunicorn==21.2.0  # Production WSGI server
 
 # Data validation
 pydantic==2.12.3

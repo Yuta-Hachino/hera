@@ -101,18 +101,55 @@ class EphemeralTokenManager:
             logger.info(f"🔑 Ephemeralトークン生成開始（uses={uses}, expire={self.expire_minutes}分）")
             token_response = self.client.auth_tokens.create(config=token_config)
 
-            # レスポンスデータ
+            # デバッグ: レスポンスの型と内容を確認
+            logger.debug(f"Token response type: {type(token_response)}")
+            logger.debug(f"Token response dir: {dir(token_response)}")
+            if hasattr(token_response, '__dict__'):
+                logger.debug(f"Token response __dict__: {token_response.__dict__}")
+
+            # AuthToken(Pydanticモデル)では name に Ephemeral Token が格納される
+            token_value = getattr(token_response, 'name', None)
+            expire_time = getattr(token_response, 'expire_time', None)
+            new_session_expire_time = getattr(token_response, 'new_session_expire_time', None)
+
+            # SDK側仕様変更時のフォールバック
+            if token_value is None:
+                token_value = getattr(token_response, 'access_token', None)
+            if token_value is None:
+                token_value = getattr(token_response, 'auth_token', None)
+            if token_value is None:
+                token_value = getattr(token_response, 'value', None)
+            if token_value is None and isinstance(token_response, str):
+                token_value = token_response
+            if token_value is None:
+                token_str = str(token_response)
+                if token_str and not token_str.startswith('<'):
+                    token_value = token_str
+
+            if expire_time is None:
+                expire_time = getattr(token_response, 'expires_at', None)
+            if expire_time is None:
+                expire_time = token_config['expire_time']
+
+            if new_session_expire_time is None:
+                new_session_expire_time = getattr(token_response, 'new_session_expires_at', None)
+            if new_session_expire_time is None:
+                new_session_expire_time = token_config['new_session_expire_time']
+
+            if token_value is None:
+                raise ValueError('Ephemeral token value is missing in response')
+
             result = {
-                'token': token_response.token,
-                'expire_time': token_response.expire_time,
-                'new_session_expire_time': token_response.new_session_expire_time,
+                'token': token_value,
+                'expire_time': expire_time,
+                'new_session_expire_time': new_session_expire_time,
                 'api_version': self.api_version,
             }
 
             if model:
                 result['model'] = model
 
-            logger.info(f"✅ Ephemeralトークン生成成功（有効期限: {token_response.expire_time}）")
+            logger.info(f"✅ Ephemeralトークン生成成功（有効期限: {expire_time}）")
             return result
 
         except Exception as e:
@@ -130,7 +167,13 @@ class EphemeralTokenManager:
             WebSocket URL
         """
         base_url = "wss://generativelanguage.googleapis.com/ws"
-        service = f"google.ai.generativelanguage.{self.api_version}.GenerativeService.BidiGenerateContent"
+        constrained = token.startswith('auth_tokens/')
+        method = (
+            "GenerativeService.BidiGenerateContentConstrained"
+            if constrained
+            else "GenerativeService.BidiGenerateContent"
+        )
+        service = f"google.ai.generativelanguage.{self.api_version}.{method}"
 
         ws_url = f"{base_url}/{service}?key={token}"
 

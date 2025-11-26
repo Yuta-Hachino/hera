@@ -5,8 +5,8 @@
  * アプリ全体で認証状態を管理
  */
 import { createContext, useContext, useEffect, useState } from 'react'
-import { User } from '@supabase/supabase-js'
-import { supabase, getCurrentUser } from './supabase'
+import { User } from 'firebase/auth'
+import { getCurrentUser, signOut as firebaseSignOut, onAuthStateChange } from './firebase'
 
 interface AuthContextType {
   user: User | null
@@ -32,20 +32,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
 
     // 認証状態の変化を監視
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setUser(session?.user ?? null)
-        setLoading(false)
-      }
-    )
+    const { unsubscribe } = onAuthStateChange((user) => {
+      setUser(user)
+      setLoading(false)
+    })
 
     return () => {
-      subscription.unsubscribe()
+      unsubscribe()
     }
   }, [])
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut()
+    await firebaseSignOut()
     setUser(null)
   }
 

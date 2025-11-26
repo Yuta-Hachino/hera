@@ -532,12 +532,36 @@ def complete_session(session_id):
     missing_fields = compute_missing_fields(profile_pruned)
 
     if not profile_is_complete(profile_pruned):
+        # 詳細な不足フィールド情報を収集
+        from agents.hera.profile_validation import collect_missing_field_details
+        missing_details = collect_missing_field_details(profile_pruned)
+
+        # 日本語の説明を追加
+        field_descriptions = {
+            'age': '年齢',
+            'gender': '性別',
+            'relationship_status': '交際状況',
+            'location': '居住地',
+            'income_range': '年収',
+            'user_personality_traits': 'ユーザー性格（ビッグファイブの5つ中2つ以上）',
+            'partner_face_description': 'パートナーの外見',
+            'children_info': '子供情報（性別と名前が必須）',
+            'current_partner': '現在のパートナー（名前、性格、外見が必須）',
+            'ideal_partner': '理想のパートナー（名前、性格、外見が必須）'
+        }
+
+        missing_descriptions = [field_descriptions.get(f, f) for f in missing_fields]
+
+        logger.warning(f"セッション {session_id} のプロファイルが不完全: missing_fields={missing_fields}, details={missing_details}")
+
         return jsonify({
             'error': '必須項目が未入力のため、完了できません。',
+            'error_detail': f"不足している項目: {', '.join(missing_descriptions)}",
             'user_profile': profile_pruned,
             'conversation_history': history,
             'information_progress': progress,
             'missing_fields': missing_fields,
+            'missing_field_details': missing_details,
             'information_complete': False
         }), 400
 

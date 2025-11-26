@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import Script from 'next/script';
 import './globals.css';
 import { AuthProvider } from '@/lib/auth-context';
+import VersionInfo from '@/components/VersionInfo';
+import Header from '@/components/Header';
 
 export const metadata: Metadata = {
   title: 'AIファミリー・シミュレーター',
@@ -26,7 +28,11 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased">
-        <AuthProvider>{children}</AuthProvider>
+        <VersionInfo />
+        <AuthProvider>
+          <Header />
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

@@ -87,6 +87,7 @@ export type FamilyMessage = {
 export type FamilyStatusResponse = {
   conversation_history: ConversationMessage[];
   family_trip_info: Record<string, any>;
+  family_plan?: any;
   conversation_complete: boolean;
   error?: string;
 };
@@ -95,6 +96,7 @@ export type FamilyMessageResponse = {
   reply: FamilyMessage[];
   conversation_history: ConversationMessage[];
   family_trip_info: Record<string, any>;
+  family_plan?: any;
   conversation_complete: boolean;
   error?: string;
 };

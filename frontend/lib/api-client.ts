@@ -1,10 +1,11 @@
 /**
  * APIクライアント
- * Supabase JWTトークンを自動的に付与してバックエンドAPIを呼び出す
+ * Firebase JWTトークンを自動的に付与してバックエンドAPIを呼び出す
  */
-import { getAccessToken } from './supabase'
+import { getAccessToken } from './firebase'
+import { API_URL } from './config'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+const API_BASE_URL = API_URL
 
 interface RequestOptions extends RequestInit {
   requireAuth?: boolean
@@ -22,9 +23,9 @@ export async function apiRequest<T = any>(
 ): Promise<T> {
   const { requireAuth = false, ...fetchOptions } = options
 
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...fetchOptions.headers,
+    ...(fetchOptions.headers as Record<string, string>),
   }
 
   // 認証が必要な場合はJWTトークンを付与
@@ -187,5 +188,83 @@ export async function generateChildImage(
   return apiRequest(`/api/sessions/${sessionId}/generate-child-image`, {
     method: 'POST',
     requireAuth,
+  })
+}
+
+/**
+ * ユーザープロフィール取得
+ */
+export async function getUserProfile() {
+  return apiRequest('/api/profile', {
+    method: 'GET',
+    requireAuth: true,
+  })
+}
+
+/**
+ * ユーザーデータ取得（usersコレクションから）
+ */
+export async function getUserData() {
+  return apiRequest('/api/users/me', {
+    method: 'GET',
+    requireAuth: true,
+  })
+}
+
+/**
+ * ユーザーデータ更新
+ */
+export async function updateUserData(data: {
+  name?: string
+  age?: number
+  location?: string
+  personality_traits?: Record<string, number>
+}) {
+  return apiRequest('/api/users/me', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+    requireAuth: true,
+  })
+}
+
+/**
+ * ユーザータグ追加
+ */
+export async function addUserTag(tag: string) {
+  return apiRequest('/api/users/me/tags', {
+    method: 'POST',
+    body: JSON.stringify({ tag }),
+    requireAuth: true,
+  })
+}
+
+/**
+ * ユーザータグ削除
+ */
+export async function deleteUserTag(tag: string) {
+  return apiRequest('/api/users/me/tags', {
+    method: 'DELETE',
+    body: JSON.stringify({ tag }),
+    requireAuth: true,
+  })
+}
+
+/**
+ * ユーザーの生成物一覧取得
+ */
+export async function getUserArtifacts() {
+  return apiRequest('/api/users/me/artifacts', {
+    method: 'GET',
+    requireAuth: true,
+  })
+}
+
+/**
+ * ユーザーの生成物削除
+ */
+export async function deleteUserArtifact(sessionId: string) {
+  return apiRequest(`/api/users/me/artifacts/${sessionId}`, {
+    method: 'DELETE',
+    requireAuth: true,
   })
 }

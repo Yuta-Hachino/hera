@@ -39,6 +39,100 @@ class StorageManager(ABC):
         pass
 
 
+class FirebaseStorageManager(StorageManager):
+    """Firebase Storage + Firestore管理（本番用）"""
+
+    def __init__(self, bucket_name: str = None):
+        """
+        Args:
+            bucket_name: Firebase Storageのバケット名
+        """
+        try:
+            import firebase_admin
+            from firebase_admin import firestore, storage
+        except ImportError:
+            raise ImportError("pip install firebase-admin が必要です")
+
+        # Firebase Storageクライアント（Firebase Admin SDK経由）
+        self.bucket_name = bucket_name or os.getenv('FIREBASE_STORAGE_BUCKET')
+        if not self.bucket_name:
+            raise ValueError("FIREBASE_STORAGE_BUCKETが設定されていません")
+
+        # Firebase Admin SDKからStorageバケットを取得
+        self.bucket = storage.bucket(self.bucket_name)
+
+        # Firestoreクライアント（メタデータ保存用）
+        self.db = firestore.client()
+
+    def _get_metadata_ref(self, session_id: str, key: str):
+        """メタデータのFirestoreリファレンスを取得"""
+        return self.db.collection('storage_metadata').document(session_id).collection('items').document(key)
+
+    def _get_blob_path(self, session_id: str, file_path: str) -> str:
+        """Firebase Storageのblobパスを取得"""
+        return f"sessions/{session_id}/{file_path}"
+
+    def save_metadata(self, session_id: str, key: str, data: Dict[str, Any]) -> None:
+        """メタデータをFirestoreに保存"""
+        ref = self._get_metadata_ref(session_id, key)
+        ref.set({
+            'data': data,
+            'updated_at': datetime.utcnow().isoformat()
+        })
+
+    def load_metadata(self, session_id: str, key: str) -> Optional[Dict[str, Any]]:
+        """メタデータをFirestoreから読み込み"""
+        ref = self._get_metadata_ref(session_id, key)
+        doc = ref.get()
+        if not doc.exists:
+            return None
+        return doc.to_dict().get('data')
+
+    def save_file(self, session_id: str, file_path: str, file_data: bytes) -> str:
+        """ファイルをFirebase Storageに保存してURLを返す"""
+        blob_path = self._get_blob_path(session_id, file_path)
+        blob = self.bucket.blob(blob_path)
+
+        # Content-Typeを推測
+        content_type, _ = mimetypes.guess_type(file_path)
+        if content_type:
+            blob.content_type = content_type
+
+        # ファイルをアップロード
+        blob.upload_from_string(file_data)
+
+        # 公開URLを返す
+        # Firebase Storageの場合: https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{path}?alt=media
+        return f"https://firebasestorage.googleapis.com/v0/b/{self.bucket_name}/o/{blob_path.replace('/', '%2F')}?alt=media"
+
+    def load_file(self, session_id: str, file_path: str) -> Optional[bytes]:
+        """ファイルをFirebase Storageから読み込み"""
+        blob_path = self._get_blob_path(session_id, file_path)
+        blob = self.bucket.blob(blob_path)
+
+        if not blob.exists():
+            return None
+
+        return blob.download_as_bytes()
+
+    def delete_session(self, session_id: str) -> None:
+        """セッション全体を削除（メタデータとファイル）"""
+        # Firestoreのメタデータを削除
+        batch = self.db.batch()
+        metadata_ref = self.db.collection('storage_metadata').document(session_id)
+        items = metadata_ref.collection('items').stream()
+        for item in items:
+            batch.delete(item.reference)
+        batch.delete(metadata_ref)
+        batch.commit()
+
+        # Firebase Storageのファイルを削除
+        prefix = f"sessions/{session_id}/"
+        blobs = self.bucket.list_blobs(prefix=prefix)
+        for blob in blobs:
+            blob.delete()
+
+
 class LocalStorageManager(StorageManager):
     """ローカルストレージ管理（開発用）"""
 
@@ -278,6 +372,10 @@ def create_storage_manager() -> StorageManager:
     if storage_mode == 'local':
         from config import get_sessions_dir
         return LocalStorageManager(get_sessions_dir())
+
+    elif storage_mode == 'firebase':
+        bucket_name = os.getenv('FIREBASE_STORAGE_BUCKET')
+        return FirebaseStorageManager(bucket_name=bucket_name)
 
     elif storage_mode == 'cloud':
         redis_url = os.getenv('REDIS_URL')

@@ -22,6 +22,7 @@ import {
   WebSocketErrorCode,
   WebSocketEventHandlers,
 } from './types';
+import { API_URL } from '@/lib/config';
 
 export class LiveSessionManager {
   private sessionId: string;
@@ -49,6 +50,7 @@ export class LiveSessionManager {
     reconnectAttempts: 0,
     errorCount: 0,
   };
+  private manualStopRequested = false;
 
   constructor(options: LiveSessionOptions) {
     this.sessionId = options.sessionId;
@@ -94,7 +96,7 @@ export class LiveSessionManager {
    */
   private async fetchEphemeralToken(): Promise<void> {
     try {
-      const response = await fetch(`/api/sessions/${this.sessionId}/ephemeral-token`, {
+      const response = await fetch(`${API_URL}/api/sessions/${this.sessionId}/ephemeral-token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -184,19 +186,19 @@ export class LiveSessionManager {
     const setupMessage: SetupMessage = {
       type: 'setup',
       setup: {
-        model: this.config.model || 'gemini-2.0-flash-live-preview-04-09',
+        model: this.config?.model || 'gemini-2.0-flash-live-preview-04-09',
       },
     };
 
     // レスポンスモダリティ設定
-    if (this.config.enableAudioOutput) {
+    if (this.config?.enableAudioOutput) {
       setupMessage.setup.generation_config = {
         response_modalities: ['TEXT', 'AUDIO'],
       };
     }
 
     // システムインストラクション設定
-    if (this.config.systemInstruction) {
+    if (this.config?.systemInstruction) {
       setupMessage.setup.system_instruction = {
         parts: [{ text: this.config.systemInstruction }],
       };
@@ -349,6 +351,12 @@ export class LiveSessionManager {
     this.setState('disconnected');
     this.handlers.onDisconnect?.();
 
+    if (this.manualStopRequested) {
+      // 手動停止時は再接続を行わず、フラグのみリセット
+      this.manualStopRequested = false;
+      return;
+    }
+
     // 自動再接続
     if (wasConnected && this.autoReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
       console.log(
@@ -389,6 +397,7 @@ export class LiveSessionManager {
    */
   async stop(): Promise<void> {
     this.setState('disconnecting');
+    this.manualStopRequested = true;
 
     // 再接続タイマークリア
     if (this.reconnectTimer) {
@@ -402,6 +411,9 @@ export class LiveSessionManager {
         this.ws.close(1000, 'Normal closure');
       }
       this.ws = null;
+    } else {
+      // 接続が存在しない場合は手動停止フラグのみリセット
+      this.manualStopRequested = false;
     }
 
     this.setState('disconnected');
