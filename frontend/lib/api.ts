@@ -6,7 +6,7 @@ import {
   FamilyMessageResponse,
   FamilyStatusResponse,
 } from './types';
-import { getAccessToken } from './supabase';
+import { getAccessToken } from './firebase';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 

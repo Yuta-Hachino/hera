@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { signInWithGoogle } from '@/lib/supabase'
+import { signInWithGoogle } from '@/lib/firebase'
 import { useAuth } from '@/lib/auth-context'
 
 export default function LoginPage() {
