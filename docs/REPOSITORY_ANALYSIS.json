@@ -1,0 +1,216 @@
+{
+  "repository_name": "hera (AI Family Simulator)",
+  "analysis_date": "2026-01-09",
+  "primary_languages": ["TypeScript", "Python"],
+  "frameworks": [
+    "Next.js 14 (App Router)",
+    "Flask 3.1",
+    "Google ADK (Agent Development Kit)",
+    "Firebase Admin SDK",
+    "Tailwind CSS"
+  ],
+  "libraries": {
+    "frontend": ["React 18", "Firebase Auth", "WebSocket API", "Live2D (react-live2d-lipsync)"],
+    "backend": ["Pydantic", "google-generativeai", "Pillow", "gunicorn", "Flask-CORS", "pytest"]
+  },
+  "architecture_pattern": "Monorepo with Microservices (Frontend/Backend separation) + Agent-based AI Architecture",
+  "code_quality_score": "7/10",
+  "strengths": [
+    "明確なディレクトリ構造とフロントエンド/バックエンドの分離",
+    "TypeScriptによる型安全性の確保（フロントエンド）",
+    "Pydanticによるデータバリデーション（バックエンド）",
+    "Docker/Docker Composeによるコンテナ化対応",
+    "Google Cloud Run + Cloud Buildによる本番CI/CD環境",
+    "Firebase統合（認証・ストレージ・Firestore）",
+    "JWT認証ミドルウェアの実装（require_auth/optional_auth）",
+    "包括的なドキュメント（ARCHITECTURE.md, API_SPEC.md等）",
+    "環境変数による設定管理（.env.example提供）",
+    "ログ機能の実装（setup_logger）",
+    "WebSocket通信の再接続・エラーハンドリング実装",
+    "Conventional Commitsに準拠したコミットメッセージ"
+  ],
+  "weaknesses": [
+    "テストカバレッジが不十分（主にAPIテストのみ、フロントエンドテストなし）",
+    "一部のPythonファイルが1700行超と長大（adk_hera_agent.py）",
+    "cloudbuild.yamlにFirebase API Keyがハードコード（セキュリティリスク）",
+    "requirements.txtでバージョン固定が不十分な箇所あり",
+    "バックエンドのapp.pyに多くの責務が集中（877行）",
+    "コメントの一貫性がやや不足（日本語/英語混在）",
+    "フロントエンドにESLint/Prettierの設定ファイルがない",
+    "エラーハンドリングで一部例外を広くキャッチしすぎ",
+    "RedisからFirestoreへの移行途中のコードが残存"
+  ],
+  "technical_level": "Mid/Senior",
+  "detailed_findings": {
+    "tech_stack": {
+      "frontend": {
+        "framework": "Next.js 14 (App Router)",
+        "language": "TypeScript 5.4",
+        "styling": "Tailwind CSS 3.4",
+        "state_management": "React Context (auth-context)",
+        "realtime": "WebSocket (LiveSessionManager)",
+        "auth": "Firebase Authentication",
+        "node_version": ">=18.0.0"
+      },
+      "backend": {
+        "framework": "Flask 3.1.2",
+        "language": "Python 3.11+",
+        "ai_sdk": "Google ADK + google-generativeai 0.8",
+        "data_validation": "Pydantic 2.12",
+        "wsgi_server": "Gunicorn 21.2",
+        "auth": "Firebase Admin SDK 6.5 + PyJWT",
+        "storage": "Firebase Storage + Firestore"
+      },
+      "infrastructure": {
+        "containerization": "Docker + Docker Compose",
+        "deployment": "Google Cloud Run",
+        "ci_cd": "Cloud Build",
+        "database": "Firestore",
+        "cache": "Redis (optional/legacy)",
+        "storage": "Firebase Storage / Google Cloud Storage"
+      }
+    },
+    "code_quality": {
+      "directory_structure": {
+        "rating": "良好",
+        "notes": "frontend/backend/docs/toolsと明確に分離。App Routerのディレクトリ構造を適切に活用"
+      },
+      "naming_conventions": {
+        "rating": "概ね良好",
+        "frontend": "PascalCase (コンポーネント), camelCase (関数/変数)",
+        "backend": "snake_case (関数/変数), PascalCase (クラス)",
+        "notes": "一貫性あり、日本語コメントと英語コメントの混在あり"
+      },
+      "error_handling": {
+        "rating": "中程度",
+        "frontend": "try-catch + カスタムWebSocketErrorクラス",
+        "backend": "Flask例外ハンドリング + ロギング",
+        "notes": "一部でException全体をキャッチしている箇所あり"
+      },
+      "testing": {
+        "rating": "要改善",
+        "backend_tests": 10,
+        "frontend_tests": 0,
+        "coverage": "未計測（pytest-cov設定あり）",
+        "types": ["API統合テスト", "ユニットテスト（一部）"]
+      }
+    },
+    "architecture": {
+      "patterns": [
+        "Agent-based Architecture (ADK)",
+        "Repository Pattern (session_manager, storage_manager)",
+        "Decorator Pattern (require_auth, optional_auth)",
+        "Factory Pattern (PersonaGenerator, FamilyToolSet)",
+        "Observer Pattern (WebSocket event handlers)"
+      ],
+      "separation_of_concerns": {
+        "rating": "中程度",
+        "notes": "agents/api/utilsと分離されているが、app.pyへの責務集中あり"
+      },
+      "modularity": {
+        "rating": "良好",
+        "notes": "エージェント（hera/family）、API、ユーティリティが分離"
+      },
+      "scalability": {
+        "rating": "良好",
+        "notes": "Cloud Runによるサーバーレス対応、min-instances=0設定"
+      }
+    },
+    "security": {
+      "authentication": {
+        "method": "Firebase Authentication + JWT",
+        "implementation": "auth_middleware.py",
+        "rating": "良好"
+      },
+      "authorization": {
+        "method": "require_auth / optional_auth decorators",
+        "rating": "良好"
+      },
+      "input_validation": {
+        "method": "Pydantic models, secure_filename",
+        "rating": "中程度",
+        "notes": "ファイルアップロードでsecure_filename使用"
+      },
+      "secrets_management": {
+        "rating": "要改善",
+        "issues": [
+          "cloudbuild.yamlにFirebase API Keyがハードコード",
+          ".env.exampleは提供されている"
+        ]
+      },
+      "cors": {
+        "method": "Flask-CORS with configurable origins",
+        "rating": "良好"
+      }
+    },
+    "devops": {
+      "ci_cd": {
+        "tool": "Google Cloud Build",
+        "pipelines": ["frontend (cloudbuild.yaml)", "backend (deploy scripts)"],
+        "rating": "良好"
+      },
+      "containerization": {
+        "docker": true,
+        "docker_compose": true,
+        "services": ["backend", "frontend", "redis", "adk"],
+        "rating": "良好"
+      },
+      "environment_management": {
+        "method": ".env files + build args",
+        "examples_provided": true,
+        "rating": "良好"
+      },
+      "logging": {
+        "method": "Custom logger (utils/logger.py)",
+        "rating": "良好"
+      },
+      "health_checks": {
+        "backend": "/api/health endpoint",
+        "docker": "healthcheck directives in docker-compose",
+        "rating": "良好"
+      }
+    },
+    "git_practices": {
+      "commit_messages": {
+        "style": "Conventional Commits (feat/fix/chore)",
+        "quality": "良好",
+        "examples": [
+          "fix: improve ephemeral token handling",
+          "feat: ダッシュボードとセッションページにレイアウトコンポーネントを追加",
+          "chore: bump version to 0.1.2"
+        ]
+      },
+      "branching_strategy": {
+        "pattern": "Feature branches (feature/*)",
+        "examples": ["feature/unified-firebase-liveapi"],
+        "rating": "良好"
+      },
+      "documentation": {
+        "readme": "充実（日本語）",
+        "additional_docs": ["ARCHITECTURE.md", "API_SPEC.md", "DEPLOYMENT.md", "DATABASE_SCHEMA.md"],
+        "rating": "良好"
+      },
+      "contributors": 1,
+      "total_commits": "30+"
+    }
+  },
+  "recommendations": {
+    "high_priority": [
+      "cloudbuild.yamlからハードコードされたAPI Keyを削除し、Secret Managerを使用",
+      "フロントエンドのテストを追加（Jest + React Testing Library推奨）",
+      "adk_hera_agent.py (1700行) を複数ファイルに分割"
+    ],
+    "medium_priority": [
+      "ESLint/Prettierの設定ファイルを追加",
+      "バックエンドのapp.pyをBlueprint等で分割",
+      "テストカバレッジ計測の自動化",
+      "requirements.txtでバージョンを完全固定"
+    ],
+    "low_priority": [
+      "コメントの言語を統一（日本語または英語）",
+      "移行済みRedis関連コードのクリーンアップ",
+      "型アノテーションの追加（Python）"
+    ]
+  },
+  "overall_assessment": "Gemini Live APIとFirebaseを活用した先進的なAIアプリケーション。アーキテクチャとインフラ設計は堅実だが、テストカバレッジとセキュリティ面で改善の余地あり。個人/小規模チームプロジェクトとしては高品質。"
+}
